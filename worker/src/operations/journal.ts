@@ -13,7 +13,7 @@ export type OperationRow = {
   payload_hash: string;
   result_json: string | null;
   rfc822_message_id: string | null;
-  gmail_result_id: string | null;
+  provider_result_id: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -63,15 +63,15 @@ export async function transition(
   operationId: string,
   from: OpState[],
   to: OpState,
-  patch: { gmail_result_id?: string; rfc822_message_id?: string } = {},
+  patch: { provider_result_id?: string; rfc822_message_id?: string } = {},
 ): Promise<boolean> {
   const res = await db
     .prepare(
       `UPDATE operations SET state = ?, updated_at = ?,
-         gmail_result_id = COALESCE(?, gmail_result_id), rfc822_message_id = COALESCE(?, rfc822_message_id)
+         provider_result_id = COALESCE(?, provider_result_id), rfc822_message_id = COALESCE(?, rfc822_message_id)
        WHERE id = ? AND state IN (${from.map(() => "?").join(",")})`,
     )
-    .bind(to, Date.now(), patch.gmail_result_id ?? null, patch.rfc822_message_id ?? null, operationId, ...from)
+    .bind(to, Date.now(), patch.provider_result_id ?? null, patch.rfc822_message_id ?? null, operationId, ...from)
     .run();
   return (res.meta.changes ?? 0) === 1;
 }

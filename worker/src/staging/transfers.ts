@@ -41,7 +41,7 @@ export type GenerationRow = {
   admitted_at: number | null;
   lease_until: number | null;
   credential_version: number | null;
-  r2_key: string;
+  provider_ref: string;
   reserved_bytes: number;
   cleanup_state: string;
   writer_stopped: number;
@@ -424,7 +424,7 @@ export async function ensureTransfer(env: Env, p: Principal, raw: TransferIntent
   stmts.push(
     db
       .prepare(
-        "INSERT INTO upload_generations(user_id,transfer_id,account_id,generation,ticket_id,state,issued_until,r2_key,reserved_bytes,created_at) VALUES(?,?,?,?,?,'issued',?,?,?,?)",
+        "INSERT INTO upload_generations(user_id,transfer_id,account_id,generation,ticket_id,state,issued_until,provider_ref,reserved_bytes,created_at) VALUES(?,?,?,?,?,'issued',?,?,?,?)",
       )
       .bind(
         t.user_id,

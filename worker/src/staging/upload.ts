@@ -165,7 +165,7 @@ export async function acceptUpload(
     if (digest !== m.sha256) throw new UploadIntegrityError();
     if (Date.now() >= until) throw new McpError("handle_invalid", "handle_invalid: upload lease expired");
     putStarted = true;
-    await env.STAGING.put(g.r2_key, bytes, {
+    await env.STAGING.put(g.provider_ref, bytes, {
       httpMetadata: { contentType: m.mime },
       customMetadata: {
         intent_hash: t.intent_hash,
@@ -201,9 +201,9 @@ export async function acceptUpload(
       ]),
       db
         .prepare(
-          "INSERT INTO staging_objects(handle,user_id,account_id,direction,r2_key,filename,mime,size,sha256,created_at,expires_at) VALUES(?,?,?,'upload',?,?,?,?,?,?,?)",
+          "INSERT INTO staging_objects(handle,user_id,account_id,direction,provider_ref,filename,mime,size,sha256,created_at,expires_at) VALUES(?,?,?,'upload',?,?,?,?,?,?,?)",
         )
-        .bind(handle, t.user_id, t.account_id, g.r2_key, m.filename, m.mime, m.size, digest, finished, expires),
+        .bind(handle, t.user_id, t.account_id, g.provider_ref, m.filename, m.mime, m.size, digest, finished, expires),
       db
         .prepare(
           "UPDATE upload_generations SET state='completed',cleanup_state='published',writer_stopped=1 WHERE ticket_id=?",
@@ -290,7 +290,7 @@ async function failUpload(
   // A rejected put can have an unknown remote outcome. Keep its debt charged;
   // neither a timer nor an absent object proves a delayed writer has stopped.
   if (!writerStopped) return;
-  if (putReturned) await env.STAGING.delete(g.r2_key);
+  if (putReturned) await env.STAGING.delete(g.provider_ref);
   await db
     .prepare(
       "UPDATE upload_generations SET cleanup_state='released' WHERE ticket_id=? AND state IN ('failed','abandoned') AND writer_stopped=1",

@@ -51,7 +51,7 @@ function ctx(
 
 async function stageUpload(handle: string, size = 10) {
   await env.DB.prepare(
-    `INSERT INTO staging_objects (handle, user_id, account_id, direction, r2_key, filename, mime, size, sha256, created_at, expires_at)
+    `INSERT INTO staging_objects (handle, user_id, account_id, direction, provider_ref, filename, mime, size, sha256, created_at, expires_at)
      VALUES (?, 'tg', 'ta', 'upload', ?, 'f.pdf', 'application/pdf', ?, 'h', ?, ?)`,
   )
     .bind(handle, `stg/tg/${handle}`, size, Date.now(), Date.now() + 60_000)
@@ -108,7 +108,7 @@ const audit = (pendingId?: string) =>
       summary: string;
     }>();
 const opRow = (id: string) =>
-  env.DB.prepare("SELECT state, gmail_result_id, result_json, rfc822_message_id FROM operations WHERE id = ?")
+  env.DB.prepare("SELECT state, provider_result_id, result_json, rfc822_message_id FROM operations WHERE id = ?")
     .bind(id)
     .first<any>();
 
@@ -123,10 +123,10 @@ beforeAll(async () => {
     if (r.operationId) await beginOperation(env.DB, r.operationId, { rfc822_message_id: "<x@test>" });
     if (r.payload.fail === "after_open") throw new Error("boom after open");
     if (r.payload.fail === "gmail_4xx") throw new GmailApiError(400, "Invalid To header", null);
-    return { gmail_result_id: "gm1", echoed: r.payload.to };
+    return { provider_result_id: "gm1", echoed: r.payload.to };
   });
   registerExecutor("test_read", 1, (_env, _deps, r) => Promise.resolve({ read: r.payload.q }));
-  registerExecutor("test_forgot", 1, () => Promise.resolve({ gmail_result_id: "gmX" }));
+  registerExecutor("test_forgot", 1, () => Promise.resolve({ provider_result_id: "gmX" }));
 });
 
 describe("allow", () => {
@@ -136,16 +136,16 @@ describe("allow", () => {
     expect(body).toMatchObject({
       status: "executed",
       account: "main",
-      gmail_result_id: "gm1",
+      provider_result_id: "gm1",
       echoed: ["x@example.test"],
     });
     expect(await opRow(body.operation_id)).toMatchObject({
       state: "executed",
-      gmail_result_id: "gm1",
+      provider_result_id: "gm1",
       rfc822_message_id: "<x@test>",
     });
     expect(JSON.parse((await opRow(body.operation_id)).result_json)).toEqual({
-      gmail_result_id: "gm1",
+      provider_result_id: "gm1",
       echoed: ["x@example.test"],
     });
     const rows = (await audit()).results.slice(-2);
@@ -171,7 +171,7 @@ describe("allow", () => {
       status: "executed",
       replayed: true,
       operation_id: a.operation_id,
-      gmail_result_id: "gm1",
+      provider_result_id: "gm1",
       echoed: ["x@example.test"],
     });
     const c = parse(await run(ctx(), await input({ key: "k1", args: { to: ["y@example.test"] } })));
@@ -349,7 +349,7 @@ describe("ask without URL elicitation", () => {
       status: "executed",
       replayed: true,
       operation_id: done.operation_id,
-      gmail_result_id: "gm1",
+      provider_result_id: "gm1",
     });
     // A cancelled pending releases the key for a fresh attempt.
     const d = PendingApprovalResult.parse(parse(await run(ctx(), await input({ key: "k5" }))));
@@ -380,7 +380,7 @@ describe("ask with URL elicitation and resume", () => {
     const state = await stateFor(id);
     setTimeout(() => void approvePending(env.DB, { id, userId: "tg", via: "elicitation" }), 15);
     const body = parse(await resume(ctx({ url: true, answer: "accept" }), await input({ stage: true }), state));
-    expect(body).toMatchObject({ status: "executed", action_id: id, gmail_result_id: "gm1" });
+    expect(body).toMatchObject({ status: "executed", action_id: id, provider_result_id: "gm1" });
     expect(staged).toEqual(["staged"]);
     expect((await getPending(env.DB, id, "tg"))!).toMatchObject({
       state: "executed",
@@ -454,7 +454,7 @@ describe("executePending", () => {
     const id = await pendingId();
     await approvePending(env.DB, { id, userId: "tg", via: "browser" });
     const out = await executePending(ctx(), id);
-    expect(out).toMatchObject({ status: "executed", action_id: id, gmail_result_id: "gm1" });
+    expect(out).toMatchObject({ status: "executed", action_id: id, provider_result_id: "gm1" });
     expect((await getPending(env.DB, id, "tg"))!).toMatchObject({ state: "executed", payload_json: null });
     expect((await opRow(out.operation_id as string)).state).toBe("executed");
     await expect(executePending(ctx(), id)).rejects.toMatchObject({ code: "pending_replayed" });

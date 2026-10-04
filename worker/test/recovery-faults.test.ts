@@ -2,7 +2,7 @@ import { expect, it } from "vitest";
 import { testEnv } from "./test-env";
 import { seedRecovery } from "./recovery-fixtures";
 import { settleDirect } from "../src/operations/recovery-state";
-const receipt = { gmail_result_id: "m1", message: { id: "m1", thread_id: "t1", label_ids: ["SENT"] } };
+const receipt = { provider_result_id: "m1", message: { id: "m1", thread_id: "t1", label_ids: ["SENT"] } };
 it("rolls back every settlement statement boundary, then permits exactly one winner", async () => {
   const e = testEnv();
   const b = await seedRecovery(e, "statement-faults", { linked: true });

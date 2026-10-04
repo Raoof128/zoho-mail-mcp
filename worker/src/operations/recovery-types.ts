@@ -1,7 +1,7 @@
 export type UploadEndpoint = { kind: "send" } | { kind: "draft_create" } | { kind: "draft_update"; draftId: string };
 export type RecoveryMode = "generated_search" | "send_session_status";
 export type SendResult = {
-  gmail_result_id: string;
+  provider_result_id: string;
   message: { id: string; thread_id: string; label_ids: string[] };
 };
 export type Binding = {

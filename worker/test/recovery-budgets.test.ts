@@ -50,7 +50,7 @@ it("serializes concurrent account/window claims and rolling request credit", asy
         b,
         lease,
         { runUntil: until, attemptUntil: now + 45000, requestUntil: now + 15000 },
-        i % 3 === 0 ? "refresh" : "gmail",
+        i % 3 === 0 ? "refresh" : "zoho",
         now,
       )
     )
@@ -64,7 +64,7 @@ it("serializes concurrent account/window claims and rolling request credit", asy
       b,
       lease,
       { runUntil: now, attemptUntil: now + 45000, requestUntil: now + 15000 },
-      "gmail",
+      "zoho",
       now,
     ),
   ).toBe(false);

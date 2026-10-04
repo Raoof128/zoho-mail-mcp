@@ -38,7 +38,9 @@ async function op() {
   return id;
 }
 const opRow = (id: string) =>
-  env.DB.prepare("SELECT state, rfc822_message_id, gmail_result_id FROM operations WHERE id = ?").bind(id).first<any>();
+  env.DB.prepare("SELECT state, rfc822_message_id, provider_result_id FROM operations WHERE id = ?")
+    .bind(id)
+    .first<any>();
 const mime = (extra: Partial<Parameters<typeof buildMimeStream>[0]> = {}) =>
   buildMimeStream({
     from: "me@example.test",
@@ -83,7 +85,7 @@ describe("sendMime", () => {
     gm().before = null;
     expect(seenState).toBe("executing");
     expect(sent).toMatchObject({ id: expect.stringMatching(/^m/), thread_id: expect.any(String), label_ids: ["SENT"] });
-    expect(await opRow(id)).toEqual({ state: "executing", rfc822_message_id: mid, gmail_result_id: null });
+    expect(await opRow(id)).toEqual({ state: "executing", rfc822_message_id: mid, provider_result_id: null });
     expect(gm().sent.at(-1)!.via).toBe("media");
     expect(gm().requests.at(-1)!.url).toContain("uploadType=media");
   });

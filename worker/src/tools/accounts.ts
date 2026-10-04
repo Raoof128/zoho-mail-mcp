@@ -13,7 +13,7 @@ export type AccountRef = {
 type Row = {
   id: string;
   alias: string;
-  google_email: string;
+  zoho_email: string;
   send_as: string;
   org_domains: string | null;
   send_limit_bytes: number;
@@ -29,14 +29,14 @@ function toRef(row: Row): AccountRef {
   return {
     id: row.id,
     alias: row.alias,
-    email: row.google_email,
+    email: row.zoho_email,
     sendAs: JSON.parse(row.send_as) as string[],
     orgDomains: JSON.parse(row.org_domains ?? "[]") as string[],
     sendLimitBytes: row.send_limit_bytes,
   };
 }
 
-const COLS = "id, alias, google_email, send_as, org_domains, send_limit_bytes, status";
+const COLS = "id, alias, zoho_email, send_as, org_domains, send_limit_bytes, status";
 
 /** Explicit alias, or the default. Ownership is in the query. */
 export async function resolveAccount(env: Env, userId: string, alias?: string): Promise<AccountRef> {

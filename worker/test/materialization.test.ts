@@ -26,7 +26,7 @@ it("reserves retained-byte capacity before downloading Gmail attachment data", a
   const { seedUserAndAccount } = await import("./fixtures");
   await seedUserAndAccount(env.DB, { userId: "quota-owner", accountId: "quota-account", alias: "work" });
   await env.DB.prepare(
-    "INSERT INTO staging_objects(handle,user_id,account_id,direction,r2_key,filename,mime,size,sha256,created_at,expires_at) VALUES('quota-handle','quota-owner','quota-account','download','quota-key','f','text/plain',262144000,'hash',1,9999999999999)",
+    "INSERT INTO staging_objects(handle,user_id,account_id,direction,provider_ref,filename,mime,size,sha256,created_at,expires_at) VALUES('quota-handle','quota-owner','quota-account','download','quota-key','f','text/plain',262144000,'hash',1,9999999999999)",
   ).run();
   let called = false;
   await expect(

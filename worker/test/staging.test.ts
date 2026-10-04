@@ -42,7 +42,7 @@ describe("ingest", () => {
     expect(row.size).toBe(1000);
     expect(row.sha256).toBe(await sha256Hex(data));
     expect(row.expires_at - row.created_at).toBe(30 * 60_000);
-    expect((await (await env.STAGING.get(row.r2_key))!.arrayBuffer()).byteLength).toBe(1000);
+    expect((await (await env.STAGING.get(row.provider_ref))!.arrayBuffer()).byteLength).toBe(1000);
   });
   it("blocks dangerous extensions on upload only", async () => {
     await expect(up("run.exe", bytes(1))).rejects.toThrow(/blocked_extension/);
@@ -130,7 +130,7 @@ describe("hold, reserve, consume, release, purge", () => {
     expect(row?.r).toBeNull();
     await purgeExpired(env, Date.now());
     expect(await env.DB.prepare("SELECT 1 FROM staging_objects WHERE handle = ?").bind(c.handle).first()).toBeNull();
-    expect(await env.STAGING.get(c.r2_key)).toBeNull();
+    expect(await env.STAGING.get(c.provider_ref)).toBeNull();
   });
   it("release clears an unconsumed reservation", async () => {
     const d = await up("d.bin", bytes(2));
@@ -159,8 +159,8 @@ describe("hold, reserve, consume, release, purge", () => {
       .run();
     const r = await purgeExpired(env, Date.now());
     expect(r.deleted).toBeGreaterThanOrEqual(1);
-    expect(await env.STAGING.get(a.r2_key)).toBeNull();
-    expect(await env.STAGING.get(b.r2_key)).not.toBeNull();
+    expect(await env.STAGING.get(a.provider_ref)).toBeNull();
+    expect(await env.STAGING.get(b.provider_ref)).not.toBeNull();
   });
   it("extendExpiry only raises", async () => {
     const e = await up("e.bin", bytes(2));

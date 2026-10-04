@@ -118,7 +118,7 @@ export function parseSessionStatus(
       const m = wireMessage.parse(JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(body)));
       return {
         kind: "complete",
-        result: { gmail_result_id: m.id, message: { id: m.id, thread_id: m.threadId, label_ids: m.labelIds ?? [] } },
+        result: { provider_result_id: m.id, message: { id: m.id, thread_id: m.threadId, label_ids: m.labelIds ?? [] } },
       };
     } catch {
       return invalid;

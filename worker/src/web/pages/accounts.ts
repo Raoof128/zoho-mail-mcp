@@ -20,7 +20,7 @@ const MAX_SEND_LIMIT = 26_214_400;
 type AccountRow = {
   id: string;
   alias: string;
-  google_email: string;
+  zoho_email: string;
   status: string;
   is_default: number;
   send_limit_bytes: number;
@@ -40,7 +40,7 @@ function canonicalPattern(raw: string): string {
 async function render(env: Env, s: Session, notice?: string): Promise<Response> {
   const accounts = (
     await env.DB.prepare(
-      "SELECT id, alias, google_email, status, is_default, send_limit_bytes, org_domains FROM accounts WHERE user_id = ? ORDER BY alias",
+      "SELECT id, alias, zoho_email, status, is_default, send_limit_bytes, org_domains FROM accounts WHERE user_id = ? ORDER BY alias",
     )
       .bind(s.userId)
       .all<AccountRow>()
@@ -57,7 +57,7 @@ async function render(env: Env, s: Session, notice?: string): Promise<Response> 
     const hidden = `<input type="hidden" name="csrf" value="${escapeHtml(csrf)}"><input type="hidden" name="account" value="${escapeHtml(a.id)}">`;
     const patterns = allow.filter((x) => x.account_id === a.id).map((x) => x.pattern);
     rows.push(`<section data-account="${escapeHtml(a.id)}">
-<h2>${escapeHtml(a.alias)} <span class="muted">${escapeHtml(a.google_email)} · ${escapeHtml(a.status)}${a.is_default ? " · default" : ""}</span></h2>
+<h2>${escapeHtml(a.alias)} <span class="muted">${escapeHtml(a.zoho_email)} · ${escapeHtml(a.status)}${a.is_default ? " · default" : ""}</span></h2>
 <p><a href="/connect?alias=${encodeURIComponent(a.alias)}">Reconnect</a></p>
 <form method="post" action="/accounts" class="inline">${hidden}<button name="op" value="default"${a.is_default || a.status !== "active" ? " disabled" : ""}>Make default</button></form>
 <form method="post" action="/accounts" class="inline">${hidden}<button name="op" value="revoke" class="deny"${a.status === "revoked" ? " disabled" : ""}>Revoke</button></form>

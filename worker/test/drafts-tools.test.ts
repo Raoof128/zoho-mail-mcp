@@ -73,10 +73,10 @@ describe("create_draft", () => {
     expect(raw).toContain('filename="staged.txt"');
     expect(raw).toContain('filename="inline.txt"');
     expect(raw).toContain(btoa("inline bytes"));
-    const op = await env.DB.prepare("SELECT state, gmail_result_id FROM operations WHERE id = ?")
+    const op = await env.DB.prepare("SELECT state, provider_result_id FROM operations WHERE id = ?")
       .bind(r.result.operation_id)
       .first<any>();
-    expect(op).toEqual({ state: "executed", gmail_result_id: r.result.draft.id });
+    expect(op).toEqual({ state: "executed", provider_result_id: r.result.draft.id });
     const handles = await env.DB.prepare(
       "SELECT filename, consumed_at FROM staging_objects WHERE user_id='owner-sub' AND account_id='da' ORDER BY created_at",
     ).all<any>();

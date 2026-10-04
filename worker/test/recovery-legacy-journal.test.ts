@@ -60,7 +60,7 @@ for (const from of [["executing"], ["claimed", "executing"]]) {
         await expect(statement.run()).rejects.toThrow("settlement transition permit required");
         expect(await e.DB.prepare("SELECT * FROM operations WHERE id=?").bind(id).first()).toEqual(before);
         await settleDirect(e, id, {
-          gmail_result_id: "winner",
+          provider_result_id: "winner",
           message: { id: "winner", thread_id: "thread", label_ids: ["SENT"] },
         });
         const winner = await e.DB.prepare("SELECT * FROM operations WHERE id=?").bind(id).first();
@@ -74,10 +74,10 @@ for (const from of [["executing"], ["claimed", "executing"]]) {
       } else {
         expect((await statement.run()).meta.changes).toBe(1);
         expect(
-          await e.DB.prepare("SELECT state,gmail_result_id,rfc822_message_id FROM operations WHERE id=?")
+          await e.DB.prepare("SELECT state,provider_result_id,rfc822_message_id FROM operations WHERE id=?")
             .bind(id)
             .first(),
-        ).toEqual({ state: "delivery_unknown", gmail_result_id: "provider-id", rfc822_message_id: "rfc-id" });
+        ).toEqual({ state: "delivery_unknown", provider_result_id: "provider-id", rfc822_message_id: "rfc-id" });
       }
       coverage.record(transition);
     });

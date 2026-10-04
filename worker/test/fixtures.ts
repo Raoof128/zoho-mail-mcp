@@ -7,30 +7,44 @@ export async function seedUserAndAccount(
     userId: string;
     accountId: string;
     alias: string;
+    slot?: "sarabi" | "rcp";
     isDefault?: boolean;
     orgDomains?: string[];
     sendAs?: string[];
+    email?: string;
+    /** Zoho account ids are numeric and the fake routes on `/api/accounts/(\d+)/`; a non-numeric id 404s (gauntlet round 2). */
+    zohoAccountId?: string;
   },
 ): Promise<void> {
   const now = Date.now();
+  const email = o.email ?? `${o.alias}@example.test`;
+  const zohoAccountId = o.zohoAccountId ?? `191000${o.accountId.replace(/\D/g, "") || "1"}`;
+  // Gmail-era tests name arbitrary aliases ("personal", "work"); the schema allows only the two slots, so a
+  // test that names none takes the user's first free one (M0 Task 0.2 ruling).
+  const taken = await db.prepare("SELECT slot FROM accounts WHERE user_id = ?").bind(o.userId).all<{ slot: string }>();
+  const slot = o.slot ?? (taken.results.some((r) => r.slot === "sarabi") ? "rcp" : "sarabi");
   await db
     .prepare("INSERT OR IGNORE INTO users (id, email, created_at) VALUES (?, ?, ?)")
     .bind(o.userId, `${o.userId}@example.test`, now)
     .run();
   await db
     .prepare(
-      `INSERT INTO accounts (id, user_id, alias, google_sub, google_email, send_as, org_domains, scopes, status, is_default, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)`,
+      `INSERT INTO accounts (id, user_id, alias, slot, expected_primary_email, zoho_sub, zoho_email, zoho_account_id, location,
+         send_as, org_domains, scopes, status, is_default, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'au', ?, ?, ?, 'active', ?, ?)`,
     )
     .bind(
       o.accountId,
       o.userId,
       o.alias,
+      slot,
+      email,
       `sub-${o.accountId}`,
-      `${o.alias}@example.test`,
+      email,
+      zohoAccountId,
       JSON.stringify(o.sendAs ?? []),
       o.orgDomains ? JSON.stringify(o.orgDomains) : null,
-      "gmail.modify",
+      "ZohoMail.messages.READ,ZohoMail.messages.CREATE,ZohoMail.messages.UPDATE,ZohoMail.folders.READ,ZohoMail.tags.ALL,ZohoMail.accounts.READ",
       o.isDefault ? 1 : 0,
       now,
     )

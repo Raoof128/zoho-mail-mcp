@@ -23,7 +23,7 @@ export async function settleExecuted(
     stmts.push(
       db
         .prepare(
-          `UPDATE operations SET state = 'executed', gmail_result_id = ?, result_json = ?, updated_at = ? WHERE id = ? AND state = 'executing'`,
+          `UPDATE operations SET state = 'executed', provider_result_id = ?, result_json = ?, updated_at = ? WHERE id = ? AND state = 'executing'`,
         )
         .bind(s.gmailResultId, JSON.stringify(s.result), now, s.operationId),
       db

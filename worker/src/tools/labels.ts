@@ -412,7 +412,7 @@ export function registerLabelTools(
         json: labelBody(p),
         retry: "none",
       });
-      return { gmail_result_id: label.id, label: labelView(label) };
+      return { provider_result_id: label.id, label: labelView(label) };
     },
   });
   defineTool(server, toolContext, env, {

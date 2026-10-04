@@ -27,7 +27,7 @@ it("refuses network on stale qualification and accounts for actual admitted requ
     },
   };
   const request = {
-    kind: "gmail" as const,
+    kind: "zoho" as const,
     url: `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent("rfc822msgid:" + b.generatedMessageId)}&labelIds=SENT&maxResults=2`,
     init: { method: "GET" },
   };
@@ -42,7 +42,7 @@ it("caps response bytes and deadlines through body EOF", async () => {
   const now = Date.now();
   const lease = await claimRecovery(e, b.operationId, Math.floor(now / 300000), now, now + 240000);
   const request = {
-    kind: "gmail" as const,
+    kind: "zoho" as const,
     url: `https://gmail.googleapis.com/gmail/v1/users/me/messages?q=${encodeURIComponent("rfc822msgid:" + b.generatedMessageId)}&labelIds=SENT&maxResults=2`,
     init: { method: "GET" },
   };

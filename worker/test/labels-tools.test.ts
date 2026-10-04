@@ -214,10 +214,10 @@ describe("label.manage", () => {
       status: "executed",
       label: { name: "Uni/2026/Thesis", label_list_visibility: "LABEL_SHOW" },
     });
-    const op = await env.DB.prepare("SELECT state, gmail_result_id FROM operations WHERE id = ?")
+    const op = await env.DB.prepare("SELECT state, provider_result_id FROM operations WHERE id = ?")
       .bind(done.result.operation_id)
       .first<any>();
-    expect(op).toEqual({ state: "executed", gmail_result_id: done.result.label.id });
+    expect(op).toEqual({ state: "executed", provider_result_id: done.result.label.id });
     expect((await call("execute_pending", { action_id: r.result.action_id })).result.error).toBe("pending_replayed");
   });
   it("a Gmail 409 on create is failed_safe with the message verbatim, not delivery_unknown", async () => {

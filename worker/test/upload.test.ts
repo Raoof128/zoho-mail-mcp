@@ -120,7 +120,7 @@ describe("upload publication", () => {
     expect((await ensureTransfer(env, p, { ...i, mode: "status" })).handle).toBe(out.handle);
     await expect(acceptUpload(env, p, r.ticket_id!, request())).rejects.toThrow(/handle_invalid/);
     const row = await env.DB.prepare("SELECT * FROM staging_objects WHERE handle=?").bind(out.handle).first<any>();
-    expect(await (await env.STAGING.get(row.r2_key))!.text()).toBe("verified attachment");
+    expect(await (await env.STAGING.get(row.provider_ref))!.text()).toBe("verified attachment");
   });
   it("rejects hash mismatch and leaves no usable handle", async () => {
     const { i, r } = await ready("e");

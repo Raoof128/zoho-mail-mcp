@@ -113,7 +113,7 @@ async function executeDraft(env: Env, deps: Deps, run: ExecRun) {
     rfc822MessageId,
     draftId: p.draft_id,
   });
-  return { gmail_result_id: d.id, draft: { id: d.id, message_id: d.message_id, thread_id: d.thread_id } };
+  return { provider_result_id: d.id, draft: { id: d.id, message_id: d.message_id, thread_id: d.thread_id } };
 }
 
 const acct = (userId: string, account: AccountRef) => ({ userId, accountId: account.id });

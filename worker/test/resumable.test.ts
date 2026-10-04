@@ -43,7 +43,7 @@ it("accepts only bounded final message schema", () => {
   const body = new TextEncoder().encode(JSON.stringify({ id: "m1", threadId: "t1", labelIds: ["SENT"] }));
   expect(parseSessionStatus(200, null, 100, 43, body, "send-v1")).toEqual({
     kind: "complete",
-    result: { gmail_result_id: "m1", message: { id: "m1", thread_id: "t1", label_ids: ["SENT"] } },
+    result: { provider_result_id: "m1", message: { id: "m1", thread_id: "t1", label_ids: ["SENT"] } },
   });
   expect(parseSessionStatus(201, null, 100, 43, new Uint8Array(65537), "send-v1").kind).toBe("unknown");
 });

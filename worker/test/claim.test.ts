@@ -12,7 +12,7 @@ beforeAll(async () => {
 
 async function stageUpload(handle: string, accountId = "ca", userId = "cu") {
   await env.DB.prepare(
-    `INSERT INTO staging_objects (handle, user_id, account_id, direction, r2_key, filename, mime, size, sha256, created_at, expires_at)
+    `INSERT INTO staging_objects (handle, user_id, account_id, direction, provider_ref, filename, mime, size, sha256, created_at, expires_at)
      VALUES (?, ?, ?, 'upload', ?, 'f.pdf', 'application/pdf', 1, 'h', ?, ?)`,
   )
     .bind(handle, userId, accountId, `stg/${handle}`, Date.now(), Date.now() + 60_000)
@@ -130,7 +130,7 @@ describe("operations journal", () => {
       payloadHash: "h1",
     });
     expect(a.existing).toBeNull();
-    await transition(env.DB, a.operationId, ["claimed"], "executed", { gmail_result_id: "m1" });
+    await transition(env.DB, a.operationId, ["claimed"], "executed", { provider_result_id: "m1" });
     const b = await acquire(env.DB, {
       userId: "cu",
       accountId: "ca",
@@ -139,7 +139,7 @@ describe("operations journal", () => {
       payloadHash: "h1",
     });
     expect(b.operationId).toBe(a.operationId);
-    expect(b.existing).toMatchObject({ state: "executed", gmail_result_id: "m1" });
+    expect(b.existing).toMatchObject({ state: "executed", provider_result_id: "m1" });
   });
   it("refuses a reused key with a different action or hash", async () => {
     await acquire(env.DB, {

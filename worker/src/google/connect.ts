@@ -45,14 +45,14 @@ export async function upsertAccount(
   const ring = Keyring.fromEnv(env);
   const now = Date.now();
   // Reconnect path. credential_version moves so a refresh that read the old tokens cannot write back.
-  const existing = await env.DB.prepare("SELECT id FROM accounts WHERE user_id = ? AND google_sub = ?")
+  const existing = await env.DB.prepare("SELECT id FROM accounts WHERE user_id = ? AND zoho_sub = ?")
     .bind(o.userId, o.googleSub)
     .first<{ id: string }>();
   if (existing) {
     const rt = await ring.encrypt(o.refreshToken, { userId: o.userId, accountId: existing.id, field: "refresh_token" });
     const at = await ring.encrypt(o.accessToken, { userId: o.userId, accountId: existing.id, field: "access_token" });
     await env.DB.prepare(
-      `UPDATE accounts SET google_email = ?, send_as = ?, scopes = ?, status = 'active', credential_version = credential_version + 1,
+      `UPDATE accounts SET zoho_email = ?, send_as = ?, scopes = ?, status = 'active', credential_version = credential_version + 1,
          refresh_token_enc = ?, refresh_token_key_id = ?, access_token_enc = ?, access_token_key_id = ?, access_expires_at = ?, last_refresh_at = ?
        WHERE id = ? AND user_id = ?`,
     )
@@ -80,11 +80,14 @@ export async function upsertAccount(
   const at = await ring.encrypt(o.accessToken, { userId: o.userId, accountId: id, field: "access_token" });
   try {
     await env.DB.prepare(
-      `INSERT INTO accounts (id, user_id, alias, google_sub, google_email, send_as, scopes, status, is_default,
-         refresh_token_enc, refresh_token_key_id, access_token_enc, access_token_key_id, access_expires_at, created_at, last_refresh_at)
+      // Transitional until M1 Task 1.6 deletes this file: the Zoho schema requires a slot, the expected address,
+      // a provider account id and a location (M0 Task 0.2 ruling).
+      `INSERT INTO accounts (id, user_id, alias, zoho_sub, zoho_email, send_as, scopes, status, is_default,
+         refresh_token_enc, refresh_token_key_id, access_token_enc, access_token_key_id, access_expires_at, created_at, last_refresh_at,
+         slot, expected_primary_email, zoho_account_id, location)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'active',
          (SELECT CASE WHEN EXISTS (SELECT 1 FROM accounts WHERE user_id = ? AND is_default = 1) THEN 0 ELSE 1 END),
-         ?, ?, ?, ?, ?, ?, ?)`,
+         ?, ?, ?, ?, ?, ?, ?, (SELECT CASE WHEN EXISTS (SELECT 1 FROM accounts WHERE user_id = ? AND slot = 'sarabi') THEN 'rcp' ELSE 'sarabi' END), ?, ?, 'au')`,
     )
       .bind(
         id,
@@ -102,6 +105,9 @@ export async function upsertAccount(
         o.accessExpiresAt,
         now,
         now,
+        o.userId,
+        o.email,
+        o.googleSub,
       )
       .run();
     return { id, created: true };
@@ -111,12 +117,13 @@ export async function upsertAccount(
       throw new McpError("invalid_address", `alias in use: ${o.alias}`);
     // Lost a race with a concurrent connect of the same Google account or the same default slot:
     // the row now exists, so this becomes a reconnect; a lost default slot becomes a non-default insert.
-    if (/accounts\.user_id, accounts\.google_sub/.test(msg)) return upsertAccount(env, o);
+    if (/accounts\.user_id, accounts\.zoho_sub/.test(msg)) return upsertAccount(env, o);
     if (/accounts_one_default/.test(msg)) {
       await env.DB.prepare(
-        `INSERT INTO accounts (id, user_id, alias, google_sub, google_email, send_as, scopes, status, is_default,
-           refresh_token_enc, refresh_token_key_id, access_token_enc, access_token_key_id, access_expires_at, created_at, last_refresh_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, 'active', 0, ?, ?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO accounts (id, user_id, alias, zoho_sub, zoho_email, send_as, scopes, status, is_default,
+           refresh_token_enc, refresh_token_key_id, access_token_enc, access_token_key_id, access_expires_at, created_at, last_refresh_at,
+           slot, expected_primary_email, zoho_account_id, location)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 'active', 0, ?, ?, ?, ?, ?, ?, ?, (SELECT CASE WHEN EXISTS (SELECT 1 FROM accounts WHERE user_id = ? AND slot = 'sarabi') THEN 'rcp' ELSE 'sarabi' END), ?, ?, 'au')`,
       )
         .bind(
           id,
@@ -133,6 +140,9 @@ export async function upsertAccount(
           o.accessExpiresAt,
           now,
           now,
+          o.userId,
+          o.email,
+          o.googleSub,
         )
         .run();
       return { id, created: true };

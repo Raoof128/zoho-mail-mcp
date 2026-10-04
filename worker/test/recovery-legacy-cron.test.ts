@@ -104,7 +104,7 @@ for (const line of ["27", "32", "37", "42", "54", "61"]) {
       );
     expect(await snapshot()).toEqual(before);
     await settleDirect(e, id, {
-      gmail_result_id: "winner",
+      provider_result_id: "winner",
       message: { id: "winner", thread_id: "thread", label_ids: ["SENT"] },
     });
     const after = await snapshot();
@@ -121,7 +121,7 @@ for (const phase of ["legacy", "before", "after"] as const) {
     if (phase === "legacy") await e.DB.prepare("UPDATE operations SET state='claimed' WHERE id=?").bind(id).run();
     if (phase === "after")
       await settleDirect(e, id, {
-        gmail_result_id: "winner",
+        provider_result_id: "winner",
         message: { id: "winner", thread_id: "thread", label_ids: ["SENT"] },
       });
     const snapshot = async () => ({

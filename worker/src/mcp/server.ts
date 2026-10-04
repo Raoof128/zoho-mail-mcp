@@ -50,7 +50,7 @@ export function buildServer(env: Env, principal: Principal, deps: Deps, era: Era
     },
     async () => {
       const rows = await env.DB.prepare(
-        "SELECT alias, google_email AS email, status, is_default, scopes FROM accounts WHERE user_id = ? ORDER BY alias",
+        "SELECT alias, zoho_email AS email, status, is_default, scopes FROM accounts WHERE user_id = ? ORDER BY alias",
       )
         .bind(principal.userId)
         .all();

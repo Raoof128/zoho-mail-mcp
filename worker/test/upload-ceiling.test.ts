@@ -30,11 +30,11 @@ it("publishes and verifies the inclusive 25 MiB boundary", async () => {
       body: bytes,
     }),
   );
-  const row = await env.DB.prepare("SELECT r2_key,size,sha256 FROM staging_objects WHERE handle=?")
+  const row = await env.DB.prepare("SELECT provider_ref,size,sha256 FROM staging_objects WHERE handle=?")
     .bind(out.handle)
-    .first<{ r2_key: string; size: number; sha256: string }>();
+    .first<{ provider_ref: string; size: number; sha256: string }>();
   expect(row).toMatchObject({ size: 25 * 1024 * 1024, sha256: digest });
-  const stored = await env.STAGING.get(row!.r2_key);
+  const stored = await env.STAGING.get(row!.provider_ref);
   expect(stored!.size).toBe(bytes.length);
   expect(await sha256Hex(new Uint8Array(await stored!.arrayBuffer()))).toBe(digest);
 });

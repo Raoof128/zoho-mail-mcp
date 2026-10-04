@@ -141,7 +141,7 @@ for (const transport of transports)
       if (sent) {
         const message = g.gmail.messages.get(sent.id)!;
         const receipt = {
-          gmail_result_id: message.id,
+          provider_result_id: message.id,
           message: { id: message.id, thread_id: message.threadId, label_ids: message.labelIds },
         };
         const winners = await Promise.all([settleDirect(e, id, receipt), settleDirect(e, id, receipt)]);

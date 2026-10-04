@@ -44,7 +44,7 @@ describe("connect an account", () => {
     expect(done.status).toBe(303);
     expect(done.headers.get("location")).toBe("/accounts");
     const row = await env.DB.prepare(
-      "SELECT * FROM accounts WHERE user_id = 'owner-sub' AND google_sub = 'gsub-1'",
+      "SELECT * FROM accounts WHERE user_id = 'owner-sub' AND zoho_sub = 'gsub-1'",
     ).first<any>();
     expect(row.alias).toBe("personal");
     expect(row.is_default).toBe(1);
@@ -78,12 +78,12 @@ describe("connect an account", () => {
     await b.login(g, { sub: "owner-sub", email: "owner@example.test" });
     await connect(b, "first", { sub: "gsub-2", email: "two@gmail.test" });
     const before = await env.DB.prepare(
-      "SELECT id, refresh_token_enc FROM accounts WHERE google_sub = 'gsub-2'",
+      "SELECT id, refresh_token_enc FROM accounts WHERE zoho_sub = 'gsub-2'",
     ).first<any>();
-    await env.DB.prepare("UPDATE accounts SET status = 'needs_reconnect' WHERE google_sub = 'gsub-2'").run();
+    await env.DB.prepare("UPDATE accounts SET status = 'needs_reconnect' WHERE zoho_sub = 'gsub-2'").run();
     expect((await connect(b, "renamed", { sub: "gsub-2", email: "two@gmail.test" })).status).toBe(303);
     const after = await env.DB.prepare(
-      "SELECT id, alias, status, credential_version, refresh_token_enc FROM accounts WHERE google_sub = 'gsub-2'",
+      "SELECT id, alias, status, credential_version, refresh_token_enc FROM accounts WHERE zoho_sub = 'gsub-2'",
     ).first<any>();
     expect(after.id).toBe(before.id);
     expect(after.alias).toBe("first");
@@ -110,7 +110,7 @@ describe("connect an account", () => {
     expect(res.status).toBe(409);
     expect(g.revoked.has(refresh)).toBe(true);
     expect(
-      await env.DB.prepare("SELECT count(*) AS n FROM accounts WHERE google_sub = 'gsub-31'").first<{ n: number }>(),
+      await env.DB.prepare("SELECT count(*) AS n FROM accounts WHERE zoho_sub = 'gsub-31'").first<{ n: number }>(),
     ).toEqual({ n: 0 });
 
     const start2 = new URL((await b.get("/connect?alias=narrow")).headers.get("location")!);
@@ -176,7 +176,7 @@ describe("connect an account", () => {
       b2.get(`/connect/callback?state=${s4.searchParams.get("state")}&code=${c4}`),
     ]);
     expect([r3.status, r4.status]).toEqual([303, 303]);
-    const rows = await env.DB.prepare("SELECT credential_version FROM accounts WHERE google_sub = 'gsub-40'").all<{
+    const rows = await env.DB.prepare("SELECT credential_version FROM accounts WHERE zoho_sub = 'gsub-40'").all<{
       credential_version: number;
     }>();
     expect(rows.results).toHaveLength(1);
@@ -194,7 +194,7 @@ describe("connect an account", () => {
     expect(noRefresh.status).toBe(400);
     expect(await noRefresh.text()).toContain("refresh token");
     expect(
-      await env.DB.prepare("SELECT count(*) AS n FROM accounts WHERE google_sub = 'gsub-5'").first<{ n: number }>(),
+      await env.DB.prepare("SELECT count(*) AS n FROM accounts WHERE zoho_sub = 'gsub-5'").first<{ n: number }>(),
     ).toEqual({ n: 0 });
 
     const start = await b.get("/connect?alias=six");

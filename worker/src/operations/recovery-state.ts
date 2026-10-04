@@ -27,9 +27,12 @@ export const settlementContext = z
   })
   .strict();
 export const sendResult = z
-  .object({ gmail_result_id: id, message: z.object({ id, thread_id: id, label_ids: z.array(id).max(1000) }).strict() })
+  .object({
+    provider_result_id: id,
+    message: z.object({ id, thread_id: id, label_ids: z.array(id).max(1000) }).strict(),
+  })
   .strict()
-  .refine((r) => r.gmail_result_id === r.message.id);
+  .refine((r) => r.provider_result_id === r.message.id);
 const bindingSchema = settlementContext
   .extend({
     operationId: id,
@@ -161,7 +164,7 @@ function audit(db: D1Database, op: RecoveryOperation, decision: string, now: num
   const c = settlementContext.parse(JSON.parse(op.settlement_context_json ?? "null"));
   return db
     .prepare(
-      "INSERT INTO audit_log(ts,user_id,account_id,tool,action,modifiers,phase,decision,pending_id,operation_id,gmail_result_id,summary) VALUES(?,?,?,?,?,?,'outcome',?,?,?,?,?)",
+      "INSERT INTO audit_log(ts,user_id,account_id,tool,action,modifiers,phase,decision,pending_id,operation_id,provider_result_id,summary) VALUES(?,?,?,?,?,?,'outcome',?,?,?,?,?)",
     )
     .bind(
       now,
@@ -210,9 +213,9 @@ export async function settlePositive(
       ),
       db
         .prepare(
-          "UPDATE operations SET state='executed',gmail_result_id=?,result_json=?,result_identity=?,updated_at=? WHERE id=?",
+          "UPDATE operations SET state='executed',provider_result_id=?,result_json=?,result_identity=?,updated_at=? WHERE id=?",
         )
-        .bind(result.gmail_result_id, JSON.stringify(result), identity, now, operationId),
+        .bind(result.provider_result_id, JSON.stringify(result), identity, now, operationId),
       db
         .prepare(
           "UPDATE staging_objects SET consumed_at=?,reserved_by_operation_id=NULL WHERE reserved_by_operation_id=? AND consumed_at IS NULL",
@@ -223,7 +226,7 @@ export async function settlePositive(
           "UPDATE pending_actions SET state='executed',payload_json=NULL,summary='redacted',error=NULL,executed_at=? WHERE id=? AND operation_id=? AND (state='executing' OR (state='failed' AND error='delivery_unknown'))",
         )
         .bind(now, context.pendingId, operationId),
-      audit(db, op, "executed", now, result.gmail_result_id),
+      audit(db, op, "executed", now, result.provider_result_id),
       db
         .prepare(
           "UPDATE operation_recovery SET state='completed',session_enc=NULL,session_key_id=NULL,lease_token=NULL,lease_until=NULL WHERE operation_id=?",

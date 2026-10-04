@@ -68,7 +68,7 @@ export async function observeDelivery(
         field: `send_session:${b.operationId}`,
       });
       const res = await recoveryRequest(env, deps, b, lease, deadlines, {
-        kind: "gmail",
+        kind: "zoho",
         url,
         init: { method: "PUT", headers: { "content-length": "0", "content-range": `bytes */${row.mime_length}` } },
       });
@@ -115,7 +115,7 @@ export async function observeDelivery(
     url.searchParams.set("labelIds", "SENT");
     url.searchParams.set("maxResults", "2");
     const response = await recoveryRequest(env, deps, b, lease, deadlines, {
-      kind: "gmail",
+      kind: "zoho",
       url: url.toString(),
       init: { method: "GET" },
     });
@@ -126,7 +126,7 @@ export async function observeDelivery(
     if (!list.messages?.length) return defer("not_found");
     const candidateId = list.messages[0]!.id;
     const metadata = await recoveryRequest(env, deps, b, lease, deadlines, {
-      kind: "gmail",
+      kind: "zoho",
       url: `https://gmail.googleapis.com/gmail/v1/users/me/messages/${candidateId}?format=metadata&metadataHeaders=Message-ID`,
       init: { method: "GET" },
     });
@@ -160,7 +160,7 @@ export async function settleRecovered(
     if (proof.kind === "generated_search") {
       if (lease.mode !== "generated_search" || !verifiesCandidate(b, proof.candidate)) return "fenced";
       result = sendResult.parse({
-        gmail_result_id: proof.candidate.id,
+        provider_result_id: proof.candidate.id,
         message: { id: proof.candidate.id, thread_id: proof.candidate.threadId, label_ids: proof.candidate.labels },
       });
     } else {

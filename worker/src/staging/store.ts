@@ -15,7 +15,7 @@ export type StagingRow = {
   user_id: string;
   account_id: string;
   direction: "download" | "upload";
-  r2_key: string;
+  provider_ref: string;
   filename: string;
   mime: string;
   size: number;
@@ -102,7 +102,7 @@ export async function ingest(
       Date.now(),
     ]),
     env.DB.prepare(
-      "INSERT INTO staging_ingests(id,user_id,account_id,r2_key,reserved_bytes,lease_until,state) VALUES(?,?,?,?,?,?,'active')",
+      "INSERT INTO staging_ingests(id,user_id,account_id,provider_ref,reserved_bytes,lease_until,state) VALUES(?,?,?,?,?,?,'active')",
     ).bind(handle, o.userId, o.accountId, r2Key, o.length, o.materialization.until),
   ]);
   let putStarted = false,
@@ -122,7 +122,7 @@ export async function ingest(
       user_id: o.userId,
       account_id: o.accountId,
       direction: o.direction,
-      r2_key: r2Key,
+      provider_ref: r2Key,
       filename,
       mime: o.mime,
       size: o.length,
@@ -141,7 +141,7 @@ export async function ingest(
         Date.now(),
       ]),
       env.DB.prepare(
-        `INSERT INTO staging_objects (handle, user_id, account_id, direction, r2_key, filename, mime, size, sha256,
+        `INSERT INTO staging_objects (handle, user_id, account_id, direction, provider_ref, filename, mime, size, sha256,
          source_message_id, source_attachment_id, created_at, expires_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(
@@ -149,7 +149,7 @@ export async function ingest(
         row.user_id,
         row.account_id,
         row.direction,
-        row.r2_key,
+        row.provider_ref,
         row.filename,
         row.mime,
         row.size,
@@ -260,7 +260,7 @@ export async function listUploadHandles(
 
 /** The bytes as a stream, so a 25 MB attachment is never held in the isolate at once. */
 export async function openStaged(env: Env, row: StagingRow): Promise<ReadableStream<Uint8Array>> {
-  const obj = await env.STAGING.get(row.r2_key);
+  const obj = await env.STAGING.get(row.provider_ref);
   if (!obj) throw new McpError("handle_invalid", `handle_invalid: object missing for ${row.handle}`);
   return obj.body;
 }
@@ -288,19 +288,19 @@ export async function release(db: D1Database, operationId: string): Promise<void
 /** Collects expired or consumed objects that no operation is holding. Bounded per run. */
 export async function purgeExpired(env: Env, now: number, limit = 200): Promise<{ deleted: number }> {
   const candidates = await env.DB.prepare(
-    "SELECT handle,r2_key,settlement_operation_id FROM staging_objects WHERE ((expires_at<=? OR consumed_at IS NOT NULL) AND reserved_by_operation_id IS NULL AND COALESCE(download_lease_until,0)<=?) OR cleanup_state='deleting' LIMIT ?",
+    "SELECT handle,provider_ref,settlement_operation_id FROM staging_objects WHERE ((expires_at<=? OR consumed_at IS NOT NULL) AND reserved_by_operation_id IS NULL AND COALESCE(download_lease_until,0)<=?) OR cleanup_state='deleting' LIMIT ?",
   )
     .bind(now, now, limit)
-    .all<{ handle: string; r2_key: string; settlement_operation_id: string | null }>();
+    .all<{ handle: string; provider_ref: string; settlement_operation_id: string | null }>();
   let deleted = 0;
   for (const row of candidates.results) {
-    if (row.settlement_operation_id && !(await producerStopped(env.DB, row.r2_key))) continue;
+    if (row.settlement_operation_id && !(await producerStopped(env.DB, row.provider_ref))) continue;
     const claimStatement = env.DB.prepare(
       "UPDATE staging_objects SET cleanup_state='deleting' WHERE handle=? AND reserved_by_operation_id IS NULL AND COALESCE(download_lease_until,0)<=? AND (expires_at<=? OR consumed_at IS NOT NULL OR cleanup_state='deleting') RETURNING handle",
     ).bind(row.handle, now, now);
     const claim = await storageBatch(env.DB, [row.handle], [claimStatement]);
     if (!claim[0]?.results.length) continue;
-    await env.STAGING.delete(row.r2_key);
+    await env.STAGING.delete(row.provider_ref);
     const result = await storageBatch(
       env.DB,
       [row.handle],

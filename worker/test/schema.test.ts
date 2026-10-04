@@ -43,7 +43,7 @@ describe("schema constraints", () => {
     await seedUserAndAccount(env.DB, { userId: "u6", accountId: "a10", alias: "q" });
     await insertOperation(env.DB, "op_a9", "u6", "a9", "claimed");
     await env.DB.prepare(
-      `INSERT INTO staging_objects (handle, user_id, account_id, direction, r2_key, filename, mime, size, sha256, created_at, expires_at)
+      `INSERT INTO staging_objects (handle, user_id, account_id, direction, provider_ref, filename, mime, size, sha256, created_at, expires_at)
        VALUES ('sh_x', 'u6', 'a10', 'upload', 'k', 'f', 'm', 1, 'h', 1, 9999999999999)`,
     ).run();
     await expect(
@@ -83,4 +83,47 @@ describe("schema constraints", () => {
     await expect(row("k1", "a12").run()).rejects.toThrow(/UNIQUE|PRIMARY/);
     await expect(row("k2", "a-nope").run()).rejects.toThrow(/FOREIGN KEY/);
   });
+});
+
+it("binds an account to one of the two slots with its expected address and location", async () => {
+  await seedUserAndAccount(env.DB, { userId: "u9", accountId: "a13", alias: "sarabi", slot: "sarabi" });
+  await expect(
+    seedUserAndAccount(env.DB, { userId: "u9b", accountId: "a14", alias: "other", slot: "other" as never }),
+  ).rejects.toThrow(/CHECK/);
+  const row = await env.DB.prepare("SELECT slot, expected_primary_email, location FROM accounts WHERE id='a13'").first<{
+    slot: string;
+    expected_primary_email: string;
+    location: string;
+  }>();
+  expect(row).toEqual({ slot: "sarabi", expected_primary_email: "sarabi@example.test", location: "au" });
+});
+
+// UNIQUE(user_id, slot) arrives with its own migration in M3 Task 3.6, once the Gmail-era tests that seed many
+// accounts per owner are deleted (M0 Task 0.2 ruling).
+it.todo("refuses a second account in the same slot for one owner");
+
+it("has no r2_key anywhere and a sealed_handles table owned by an account", async () => {
+  const cols = await env.DB.prepare("PRAGMA table_info(staging_objects)").all<{ name: string }>();
+  expect(cols.results.map((c) => c.name)).not.toContain("r2_key");
+  expect(cols.results.map((c) => c.name)).toContain("provider_ref");
+  await seedUserAndAccount(env.DB, { userId: "u10", accountId: "a15", alias: "rcp", slot: "rcp" });
+  await env.DB.prepare(
+    `INSERT INTO sealed_handles (handle, user_id, account_id, direction, provider_ref, filename, mime, size, sha256, created_at, expires_at)
+       VALUES ('sh_${"a".repeat(43)}', 'u10', 'a15', 'upload', '{"storeName":"s","attachmentPath":"p","attachmentName":"n"}', 'f.pdf', 'application/pdf', 3, '${"0".repeat(64)}', 1, 2)`,
+  ).run();
+  await expect(
+    env.DB.prepare(
+      `INSERT INTO sealed_handles (handle, user_id, account_id, direction, provider_ref, filename, mime, size, sha256, created_at, expires_at)
+         VALUES ('sh_${"b".repeat(43)}', 'u10', 'nope', 'upload', '{}', 'f', 'm', 1, '${"0".repeat(64)}', 1, 2)`,
+    ).run(),
+  ).rejects.toThrow(/FOREIGN KEY/);
+});
+
+it("recovery_requests accepts kind zoho and refuses gmail", async () => {
+  await seedUserAndAccount(env.DB, { userId: "u11", accountId: "a16", alias: "k", slot: "sarabi" });
+  await insertOperation(env.DB, "op_k", "u11", "a16", "claimed");
+  await env.DB.prepare("INSERT INTO recovery_requests VALUES ('r1', 1, 'op_k', 1, 'zoho')").run();
+  await expect(
+    env.DB.prepare("INSERT INTO recovery_requests VALUES ('r2', 1, 'op_k', 1, 'gmail')").run(),
+  ).rejects.toThrow(/CHECK/);
 });

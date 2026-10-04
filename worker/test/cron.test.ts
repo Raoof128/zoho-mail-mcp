@@ -75,7 +75,7 @@ describe("cron", () => {
       .bind(old, old + 900_000)
       .run();
     await env.DB.prepare(
-      `INSERT INTO staging_objects (handle, user_id, account_id, direction, r2_key, filename, mime, size, sha256, reserved_by_operation_id, created_at, expires_at)
+      `INSERT INTO staging_objects (handle, user_id, account_id, direction, provider_ref, filename, mime, size, sha256, reserved_by_operation_id, created_at, expires_at)
       VALUES ('sh_res', 'ku', 'ka', 'upload', 'k', 'f', 'm', 1, 'h', 'op_claim', ?, ?)`,
     )
       .bind(old, old + 900_000)
@@ -117,7 +117,7 @@ describe("cron", () => {
     const old = Date.now() - 10 * 60_000;
     await insertOperation(env.DB, "op_race", "ku", "ka", "claimed", old);
     await env.DB.prepare(
-      `INSERT INTO staging_objects (handle, user_id, account_id, direction, r2_key, filename, mime, size, sha256, reserved_by_operation_id, created_at, expires_at)
+      `INSERT INTO staging_objects (handle, user_id, account_id, direction, provider_ref, filename, mime, size, sha256, reserved_by_operation_id, created_at, expires_at)
       VALUES ('sh_race', 'ku', 'ka', 'upload', 'k', 'f', 'm', 1, 'h', 'op_race', ?, ?)`,
     )
       .bind(old, old + 900_000)

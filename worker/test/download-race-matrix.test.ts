@@ -63,7 +63,7 @@ describe("download races between the stream, the acknowledgement and the lease",
     expect(await new Response(read.body).text()).toBe(TEXT);
     expect(await acknowledgeDownload(env, USER, row.handle)).toEqual({ acknowledged: true, replayed: false });
 
-    const ev = await evidence(row.handle, row.r2_key);
+    const ev = await evidence(row.handle, row.provider_ref);
     expect(ev.object).toBe(true);
     expect(ev.row?.consumed_at).not.toBeNull();
     expect(ev.streams).toBe(0);
@@ -80,7 +80,7 @@ describe("download races between the stream, the acknowledgement and the lease",
     await reader.cancel("client vanished");
 
     // The slot is returned and nothing was consumed, so the bytes are still owed to the caller.
-    const ev = await evidence(row.handle, row.r2_key);
+    const ev = await evidence(row.handle, row.provider_ref);
     expect(ev.streams).toBe(0);
     expect(ev.row?.consumed_at).toBeNull();
     expect(leaseLive(ev.row?.download_lease_until ?? null)).toBe(false);
@@ -97,17 +97,17 @@ describe("download races between the stream, the acknowledgement and the lease",
     const row = await create("concurrent");
     const first = await openForRead(env, { userId: USER, handle: row.handle });
     const second = await openForRead(env, { userId: USER, handle: row.handle });
-    expect((await evidence(row.handle, row.r2_key)).streams).toBe(2);
+    expect((await evidence(row.handle, row.provider_ref)).streams).toBe(2);
 
     await new Response(first.body).text();
-    const midway = await evidence(row.handle, row.r2_key);
+    const midway = await evidence(row.handle, row.provider_ref);
     // One slot returned, and the survivor's lease is untouched: release recomputes from the remaining
     // streams rather than clearing the column.
     expect(midway.streams).toBe(1);
     expect(leaseLive(midway.row?.download_lease_until ?? null)).toBe(true);
 
     await new Response(second.body).text();
-    const after = await evidence(row.handle, row.r2_key);
+    const after = await evidence(row.handle, row.provider_ref);
     expect(after.streams).toBe(0);
     expect(leaseLive(after.row?.download_lease_until ?? null)).toBe(false);
     expect(after.permits).toBe(0);
@@ -121,7 +121,7 @@ describe("download races between the stream, the acknowledgement and the lease",
 
     // The acknowledgement arrives while the stream is still open.
     expect(await acknowledgeDownload(env, USER, row.handle)).toMatchObject({ acknowledged: true, replayed: false });
-    expect((await evidence(row.handle, row.r2_key)).row?.consumed_at).not.toBeNull();
+    expect((await evidence(row.handle, row.provider_ref)).row?.consumed_at).not.toBeNull();
 
     // The open stream is served from the object it already holds and is not torn out from under it.
     const rest = [];
@@ -134,7 +134,7 @@ describe("download races between the stream, the acknowledgement and the lease",
 
     // A new read is refused, because the handle is consumed.
     await expect(openForRead(env, { userId: USER, handle: row.handle })).rejects.toThrow(/handle_invalid/);
-    const ev = await evidence(row.handle, row.r2_key);
+    const ev = await evidence(row.handle, row.provider_ref);
     expect(ev.streams).toBe(0);
     expect(ev.acks).toBe(1);
     expect(ev.permits).toBe(0);
@@ -148,7 +148,7 @@ describe("download races between the stream, the acknowledgement and the lease",
       .run();
 
     const result = await acknowledgeDownload(env, USER, row.handle);
-    const ev = await evidence(row.handle, row.r2_key);
+    const ev = await evidence(row.handle, row.provider_ref);
 
     // Whatever the caller is told, the reservation is what decides: the bytes stay owed to the
     // operation and the row is not marked consumed by a reader's acknowledgement.
@@ -164,7 +164,7 @@ describe("download races between the stream, the acknowledgement and the lease",
     // away by the staging_objects predicate alone. This is the ordering the simpler case cannot reach.
     const read = await openForRead(env, { userId: USER, handle: row.handle });
     await new Response(read.body).text();
-    expect((await evidence(row.handle, row.r2_key)).admissions).toBe(1);
+    expect((await evidence(row.handle, row.provider_ref)).admissions).toBe(1);
 
     await insertOperation(env.DB, "dl-race-op-late", USER, ACCOUNT, "claimed");
     await env.DB.prepare("UPDATE staging_objects SET reserved_by_operation_id=? WHERE handle=?")
@@ -172,7 +172,7 @@ describe("download races between the stream, the acknowledgement and the lease",
       .run();
 
     const result = await acknowledgeDownload(env, USER, row.handle);
-    const ev = await evidence(row.handle, row.r2_key);
+    const ev = await evidence(row.handle, row.provider_ref);
 
     // The acknowledgement is recorded, because the reader did genuinely receive the bytes, but the
     // consumption is refused: the reservation outranks it and the operation's claim on the object
@@ -189,7 +189,7 @@ describe("download races between the stream, the acknowledgement and the lease",
     const row = await create("foreign");
     await expect(openForRead(env, { userId: "intruder", handle: row.handle })).rejects.toThrow(/handle_invalid/);
     expect(await acknowledgeDownload(env, "intruder", row.handle)).toBeNull();
-    const ev = await evidence(row.handle, row.r2_key);
+    const ev = await evidence(row.handle, row.provider_ref);
     expect(ev.row?.consumed_at).toBeNull();
     expect(ev.streams).toBe(0);
     expect(ev.acks).toBe(0);

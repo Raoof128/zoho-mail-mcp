@@ -78,7 +78,7 @@ function replayOperation(op: OperationRow, alias: string): Record<string, unknow
       replayed: true,
       account: alias,
       operation_id: op.id,
-      gmail_result_id: op.gmail_result_id,
+      provider_result_id: op.provider_result_id,
       ...(JSON.parse(op.result_json ?? "{}") as object),
     };
   }

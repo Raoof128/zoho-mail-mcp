@@ -79,13 +79,13 @@ it("fences a previously admitted probe at exact expiry for refresh, request and 
   expect(lease).not.toBeNull();
   if (!lease) throw new Error("missing lease");
   const deadlines = { runUntil: now + 20000, attemptUntil: now + 10000, requestUntil: now + 10000 };
-  expect(await admitRequest(e, b, lease, deadlines, "gmail", expiry - 1)).toBe(true);
+  expect(await admitRequest(e, b, lease, deadlines, "zoho", expiry - 1)).toBe(true);
   for (const time of [expiry, expiry + 1]) {
-    expect(await admitRequest(e, b, lease, deadlines, "gmail", time)).toBe(false);
+    expect(await admitRequest(e, b, lease, deadlines, "zoho", time)).toBe(false);
     expect(await admitRequest(e, b, lease, deadlines, "refresh", time)).toBe(false);
   }
   expect(
-    await admitRequest(e, b, { ...lease, qualificationEpoch: "qe_" + "Z".repeat(43) }, deadlines, "gmail", expiry - 1),
+    await admitRequest(e, b, { ...lease, qualificationEpoch: "qe_" + "Z".repeat(43) }, deadlines, "zoho", expiry - 1),
   ).toBe(false);
   const clock = vi.spyOn(Date, "now").mockReturnValue(expiry);
   try {

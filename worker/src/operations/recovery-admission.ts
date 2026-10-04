@@ -136,7 +136,7 @@ export async function admitRequest(
   b: Binding,
   lease: Lease,
   deadlines: Deadlines,
-  kind: "gmail" | "refresh",
+  kind: "zoho" | "refresh",
   now: number,
 ): Promise<boolean> {
   const db = env.DB;

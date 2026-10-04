@@ -26,7 +26,7 @@ it("cleans published consumed storage under a permit without erasing delivery tr
     { ...b, operationId: op, generatedMessageId: `<${op}@${e.WORKER_HOSTNAME}>`, startedAt: Date.now() },
     null,
   );
-  await settleDirect(e, op, { gmail_result_id: "m1", message: { id: "m1", thread_id: "t1", label_ids: ["SENT"] } });
+  await settleDirect(e, op, { provider_result_id: "m1", message: { id: "m1", thread_id: "t1", label_ids: ["SENT"] } });
   expect((await purgeExpired(e, Date.now())).deleted).toBe(1);
   expect(await e.DB.prepare("SELECT state FROM operations WHERE id=?").bind(op).first("state")).toBe("executed");
   expect(await e.DB.prepare("SELECT count(*) AS n FROM settlement_permits").first("n")).toBe(0);
@@ -64,9 +64,9 @@ it("retains stopped producer proof until its published object is removed", async
       body: "",
     }),
   );
-  const key = (await e.DB.prepare("SELECT r2_key FROM staging_objects WHERE handle=?")
+  const key = (await e.DB.prepare("SELECT provider_ref FROM staging_objects WHERE handle=?")
     .bind(result.handle)
-    .first<string>("r2_key"))!;
+    .first<string>("provider_ref"))!;
   await e.DB.prepare("UPDATE upload_transfers SET retain_until=1 WHERE user_id=?").bind(id).run();
   await recoverUploads(e, Date.now());
   expect(await producerStopped(e.DB, key)).toBe(true);

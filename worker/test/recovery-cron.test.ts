@@ -19,7 +19,7 @@ it("three delayed windows share thirty actual-time requests", async () => {
           b,
           lease,
           { requestUntil: now + 15000, attemptUntil: now + 45000, runUntil: now + 240000 },
-          i % 2 ? "refresh" : "gmail",
+          i % 2 ? "refresh" : "zoho",
           Date.now(),
         )
       )

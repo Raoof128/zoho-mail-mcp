@@ -49,7 +49,7 @@ it("one positive winner survives changed labels, late errors and metadata retent
   await beginRecoverableOperation(e, b, null);
   await recordFailure(e, b.operationId);
   await e.DB.prepare("DELETE FROM operation_recovery WHERE operation_id=?").bind(b.operationId).run();
-  const result = { gmail_result_id: "m1", message: { id: "m1", thread_id: "t1", label_ids: ["SENT"] } };
+  const result = { provider_result_id: "m1", message: { id: "m1", thread_id: "t1", label_ids: ["SENT"] } };
   expect(await settleDirect(e, b.operationId, result)).toBe("settled");
   expect(await settleDirect(e, b.operationId, { ...result, message: { ...result.message, label_ids: [] } })).toBe(
     "replayed",
@@ -58,7 +58,7 @@ it("one positive winner survives changed labels, late errors and metadata retent
     await settleDirect(e, b.operationId, {
       ...result,
       message: { ...result.message, id: "other" },
-      gmail_result_id: "other",
+      provider_result_id: "other",
     }),
   ).toBe("conflict");
   expect(await recordFailure(e, b.operationId)).toBe("executed");

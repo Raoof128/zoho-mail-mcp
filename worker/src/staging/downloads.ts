@@ -75,7 +75,7 @@ export async function leasedDownload(
   };
   let object: R2ObjectBody | null;
   try {
-    object = await env.STAGING.get(row.r2_key);
+    object = await env.STAGING.get(row.provider_ref);
   } catch (e) {
     await release();
     throw e;

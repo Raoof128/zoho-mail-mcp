@@ -16,6 +16,13 @@ for (const site of legacyWriterCorpus.filter((s) => files.some((f) => s.file ===
     let sql: string = site.sql,
       binds: unknown[];
     if (site.file.endsWith("google/connect.ts")) {
+      // The Zoho schema requires a slot, the expected address, a provider account id and a location on every
+      // account (spec D3). The captured Gmail-era inserts predate those columns, so the replay supplies them
+      // (M0 Task 0.2 ruling; this file is deleted in M3 Task 3.6).
+      if (site.line === "83" || site.line === "117")
+        sql = sql
+          .replace("last_refresh_at)", "last_refresh_at, slot, expected_primary_email, zoho_account_id, location)")
+          .replace(/\)\s*$/, ", 'rcp', 'new@example.test', '191000777', 'au')");
       binds =
         site.line === "55"
           ? ["new@example.test", "[]", "[]", blob, "test-key", blob, "test-key", now + 60000, now, id, id]
@@ -71,10 +78,10 @@ for (const site of legacyWriterCorpus.filter((s) => files.some((f) => s.file ===
     expect((await statement.run()).meta.changes).toBe(site.file.endsWith("policy/engine.ts") ? 2 : 1);
     if (site.file.endsWith("google/connect.ts")) {
       expect(
-        await e.DB.prepare("SELECT google_email,status,credential_version FROM accounts WHERE id=?")
+        await e.DB.prepare("SELECT zoho_email,status,credential_version FROM accounts WHERE id=?")
           .bind(site.line === "55" ? id : `${id}-new`)
           .first(),
-      ).toEqual({ google_email: "new@example.test", status: "active", credential_version: site.line === "55" ? 1 : 0 });
+      ).toEqual({ zoho_email: "new@example.test", status: "active", credential_version: site.line === "55" ? 1 : 0 });
     } else if (site.file.endsWith("google/tokens.ts")) {
       const row = await e.DB.prepare("SELECT status,credential_version,access_token_key_id FROM accounts WHERE id=?")
         .bind(id)

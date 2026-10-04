@@ -23,7 +23,7 @@ describe("transfer persistence", () => {
       .run();
     const add = (n: number) =>
       env.DB.prepare(
-        "INSERT INTO upload_generations (user_id,transfer_id,account_id,generation,ticket_id,state,issued_until,r2_key,reserved_bytes,created_at) VALUES (?,?,?,?,?,'issued',100,?,0,0)",
+        "INSERT INTO upload_generations (user_id,transfer_id,account_id,generation,ticket_id,state,issued_until,provider_ref,reserved_bytes,created_at) VALUES (?,?,?,?,?,'issued',100,?,0,0)",
       )
         .bind("transfer-owner", "tr_one", "transfer-account", n, `ticket_${n}`, `stg/test/${n}`)
         .run();

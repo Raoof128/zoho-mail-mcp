@@ -163,7 +163,7 @@ describe("send_message", () => {
     expect(raw).toContain("multipart/alternative");
     expect(raw).toContain('filename="notes.txt"');
     const op = await env.DB.prepare(
-      "SELECT state, settlement_protocol, rfc822_message_id, gmail_result_id, result_json FROM operations WHERE id = ?",
+      "SELECT state, settlement_protocol, rfc822_message_id, provider_result_id, result_json FROM operations WHERE id = ?",
     )
       .bind(r.result.operation_id)
       .first<any>();
@@ -171,9 +171,9 @@ describe("send_message", () => {
       state: "executed",
       settlement_protocol: 2,
       rfc822_message_id: `<${r.result.operation_id}@zoho-mail-mcp.example.workers.dev>`,
-      gmail_result_id: r.result.message.id,
+      provider_result_id: r.result.message.id,
     });
-    expect(JSON.parse(op.result_json)).toEqual({ gmail_result_id: r.result.message.id, message: r.result.message });
+    expect(JSON.parse(op.result_json)).toEqual({ provider_result_id: r.result.message.id, message: r.result.message });
     expect(
       (await env.DB.prepare("SELECT consumed_at FROM staging_objects WHERE handle = ?").bind(h).first<any>())
         .consumed_at,
@@ -187,11 +187,11 @@ describe("send_message", () => {
     });
     expect(gm().sent.filter((s) => s.id === r.result.message.id)).toHaveLength(1);
     const outcome = await env.DB.prepare(
-      "SELECT decision, gmail_result_id, summary FROM audit_log WHERE user_id='owner-sub' AND tool='send_message' AND phase='outcome' ORDER BY id DESC LIMIT 1",
+      "SELECT decision, provider_result_id, summary FROM audit_log WHERE user_id='owner-sub' AND tool='send_message' AND phase='outcome' ORDER BY id DESC LIMIT 1",
     ).first<any>();
     expect(outcome).toEqual({
       decision: "executed",
-      gmail_result_id: r.result.message.id,
+      provider_result_id: r.result.message.id,
       summary: "recipients=1 attachments=1",
     });
     await setPolicy(env.DB, { userId: "owner-sub", accountId: "sa", action: "send.message", level: "ask" });

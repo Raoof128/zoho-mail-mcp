@@ -57,11 +57,11 @@ export async function recoverUploads(env: Env, now: number, limit = 200): Promis
     }
   }
   const debt = await db
-    .prepare("SELECT ticket_id,r2_key,writer_stopped FROM upload_generations WHERE cleanup_state='debt' LIMIT ?")
+    .prepare("SELECT ticket_id,provider_ref,writer_stopped FROM upload_generations WHERE cleanup_state='debt' LIMIT ?")
     .bind(limit)
-    .all<{ ticket_id: string; r2_key: string; writer_stopped: number }>();
+    .all<{ ticket_id: string; provider_ref: string; writer_stopped: number }>();
   for (const g of debt.results) {
-    await env.STAGING.delete(g.r2_key);
+    await env.STAGING.delete(g.provider_ref);
     if (g.writer_stopped === 1)
       await db
         .prepare(
@@ -72,11 +72,11 @@ export async function recoverUploads(env: Env, now: number, limit = 200): Promis
   }
   await db.prepare("UPDATE staging_ingests SET state='debt' WHERE state='active' AND lease_until<=?").bind(now).run();
   const ingests = await db
-    .prepare("SELECT id,r2_key,writer_stopped FROM staging_ingests WHERE state='debt' LIMIT ?")
+    .prepare("SELECT id,provider_ref,writer_stopped FROM staging_ingests WHERE state='debt' LIMIT ?")
     .bind(limit)
-    .all<{ id: string; r2_key: string; writer_stopped: number }>();
+    .all<{ id: string; provider_ref: string; writer_stopped: number }>();
   for (const job of ingests.results) {
-    await env.STAGING.delete(job.r2_key);
+    await env.STAGING.delete(job.provider_ref);
     if (job.writer_stopped === 1)
       await db
         .prepare("UPDATE staging_ingests SET state='released' WHERE id=? AND state='debt' AND writer_stopped=1")
@@ -114,7 +114,7 @@ export async function recoverUploads(env: Env, now: number, limit = 200): Promis
       .bind(now),
     db
       .prepare(
-        "DELETE FROM upload_generations WHERE NOT EXISTS(SELECT 1 FROM staging_objects s WHERE s.r2_key=upload_generations.r2_key) AND EXISTS(SELECT 1 FROM upload_transfers t WHERE t.user_id=upload_generations.user_id AND t.id=upload_generations.transfer_id AND t.retain_until<=? AND t.state IN ('completed','failed','expired','denied') AND NOT EXISTS(SELECT 1 FROM upload_generations g WHERE g.user_id=t.user_id AND g.transfer_id=t.id AND g.cleanup_state IN ('debt','deleting','reserved')))",
+        "DELETE FROM upload_generations WHERE NOT EXISTS(SELECT 1 FROM staging_objects s WHERE s.provider_ref=upload_generations.provider_ref) AND EXISTS(SELECT 1 FROM upload_transfers t WHERE t.user_id=upload_generations.user_id AND t.id=upload_generations.transfer_id AND t.retain_until<=? AND t.state IN ('completed','failed','expired','denied') AND NOT EXISTS(SELECT 1 FROM upload_generations g WHERE g.user_id=t.user_id AND g.transfer_id=t.id AND g.cleanup_state IN ('debt','deleting','reserved')))",
       )
       .bind(now),
     db

@@ -30,7 +30,7 @@ it("protects an admitted read from purge and accepts its ACK after original TTL"
   const read = await openForRead(env, { userId: row.user_id, handle: row.handle });
   await env.DB.prepare("UPDATE staging_objects SET expires_at=1 WHERE handle=?").bind(row.handle).run();
   await purgeExpired(env, Date.now());
-  expect(await env.STAGING.get(row.r2_key)).not.toBeNull();
+  expect(await env.STAGING.get(row.provider_ref)).not.toBeNull();
   await new Response(read.body).text();
   expect((await acknowledgeDownload(env, row.user_id, row.handle))?.acknowledged).toBe(true);
 });

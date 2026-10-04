@@ -147,7 +147,7 @@ async function executeSend(env: Env, deps: Deps, run: ExecRun) {
     rfc822MessageId,
     recoveryContext: run.recoveryContext,
   });
-  return { gmail_result_id: m.id, message: m };
+  return { provider_result_id: m.id, message: m };
 }
 
 function quoted(v: ReturnType<typeof messageView>): string {
@@ -383,7 +383,7 @@ export function registerSendTools(server: McpServer, toolContext: (ctx: ServerCo
         rfc822MessageId: stored.rfc822_message_id,
         recoveryContext: run.recoveryContext,
       });
-      return { gmail_result_id: m.id, message: m };
+      return { provider_result_id: m.id, message: m };
     },
   });
 }

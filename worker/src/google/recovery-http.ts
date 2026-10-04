@@ -29,7 +29,7 @@ async function allowed(
   env: Env,
   b: Binding,
   lease: Lease,
-  request: { kind: "gmail" | "refresh"; url: string; init: RequestInit },
+  request: { kind: "zoho" | "refresh"; url: string; init: RequestInit },
 ): Promise<boolean> {
   if (request.kind === "refresh")
     return (
@@ -79,7 +79,7 @@ export async function recoveryRequest(
   b: Binding,
   lease: Lease,
   deadlines: Deadlines,
-  request: { kind: "gmail" | "refresh"; url: string; init: RequestInit },
+  request: { kind: "zoho" | "refresh"; url: string; init: RequestInit },
 ): Promise<HttpObservation> {
   const deferred = (reason: "budget" | "transport"): HttpObservation => ({
     kind: "deferred",

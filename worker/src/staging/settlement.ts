@@ -24,7 +24,7 @@ export async function producerStopped(db: D1Database, key: string): Promise<bool
   return Boolean(
     await db
       .prepare(
-        `SELECT 1 WHERE (EXISTS(SELECT 1 FROM staging_ingests WHERE r2_key=? AND writer_stopped=1 AND state='published') OR EXISTS(SELECT 1 FROM upload_generations WHERE r2_key=? AND writer_stopped=1 AND cleanup_state='published')) AND NOT EXISTS(SELECT 1 FROM staging_ingests WHERE r2_key=? AND writer_stopped=0) AND NOT EXISTS(SELECT 1 FROM upload_generations WHERE r2_key=? AND writer_stopped=0)`,
+        `SELECT 1 WHERE (EXISTS(SELECT 1 FROM staging_ingests WHERE provider_ref=? AND writer_stopped=1 AND state='published') OR EXISTS(SELECT 1 FROM upload_generations WHERE provider_ref=? AND writer_stopped=1 AND cleanup_state='published')) AND NOT EXISTS(SELECT 1 FROM staging_ingests WHERE provider_ref=? AND writer_stopped=0) AND NOT EXISTS(SELECT 1 FROM upload_generations WHERE provider_ref=? AND writer_stopped=0)`,
       )
       .bind(key, key, key, key)
       .first(),

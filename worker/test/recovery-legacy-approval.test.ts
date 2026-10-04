@@ -147,7 +147,7 @@ for (const phase of ["before", "after"] as const) {
     await seedRecovery(e, id, { linked: true });
     if (phase === "after")
       await settleDirect(e, id, {
-        gmail_result_id: "winner",
+        provider_result_id: "winner",
         message: { id: "winner", thread_id: "thread", label_ids: ["SENT"] },
       });
     const pending = await e.DB.prepare("SELECT * FROM pending_actions WHERE id=?").bind(`${id}-pending`).first();

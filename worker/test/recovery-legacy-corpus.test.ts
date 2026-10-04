@@ -56,7 +56,7 @@ for (const site of sites) {
       const b = await seedRecovery(e, id, { linked: true });
       if (phase === "after")
         await settleDirect(e, id, {
-          gmail_result_id: "winner",
+          provider_result_id: "winner",
           message: { id: "winner", thread_id: "thread", label_ids: ["SENT"] },
         });
       const snapshot = async () => ({
@@ -129,7 +129,7 @@ for (const variant of ["success", "failed-safe", "unknown"] as const) {
       await seedRecovery(e, id, { linked: true, protocol: state === "legacy" ? 1 : 2 });
       if (state === "after")
         await settleDirect(e, id, {
-          gmail_result_id: "winner",
+          provider_result_id: "winner",
           message: { id: "winner", thread_id: "thread", label_ids: ["SENT"] },
         });
       const snapshot = async () => ({

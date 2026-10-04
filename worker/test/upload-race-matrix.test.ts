@@ -47,7 +47,7 @@ type Generation = {
   state: string;
   cleanup_state: string;
   writer_stopped: number;
-  r2_key: string;
+  provider_ref: string;
 };
 
 /** The upload tuple: R2, both database sides, and what a caller could reach. */
@@ -59,22 +59,22 @@ async function evidence(transferId: string) {
     .first<{ state: string; handle: string | null; active_generation: number; account_id: string }>();
   const generations = (
     await env.DB.prepare(
-      "SELECT generation,ticket_id,state,cleanup_state,writer_stopped,r2_key FROM upload_generations WHERE transfer_id=? ORDER BY generation",
+      "SELECT generation,ticket_id,state,cleanup_state,writer_stopped,provider_ref FROM upload_generations WHERE transfer_id=? ORDER BY generation",
     )
       .bind(transferId)
       .all<Generation>()
   ).results;
   const objects = (
     await env.DB.prepare(
-      "SELECT handle,r2_key,size,sha256,consumed_at,user_id,account_id FROM staging_objects WHERE r2_key IN (SELECT r2_key FROM upload_generations WHERE transfer_id=?)",
+      "SELECT handle,provider_ref,size,sha256,consumed_at,user_id,account_id FROM staging_objects WHERE provider_ref IN (SELECT provider_ref FROM upload_generations WHERE transfer_id=?)",
     )
       .bind(transferId)
-      .all<{ handle: string; r2_key: string; size: number; sha256: string; consumed_at: number | null }>()
+      .all<{ handle: string; provider_ref: string; size: number; sha256: string; consumed_at: number | null }>()
   ).results;
   const stored = await Promise.all(
     generations.map(async (g) => {
-      const head = await env.STAGING.head(g.r2_key);
-      return { r2_key: g.r2_key, exists: head !== null, size: head?.size ?? null };
+      const head = await env.STAGING.head(g.provider_ref);
+      return { provider_ref: g.provider_ref, exists: head !== null, size: head?.size ?? null };
     }),
   );
   return { transfer, generations, objects, stored };
@@ -107,7 +107,7 @@ describe("upload races across D1, R2 and the caller's response", () => {
   it("removes the object when the publication transaction fails after the bytes landed", async () => {
     const i = await intent("B");
     const r = await ensureTransfer(env, p, i);
-    const key = (await evidence(i.transfer_id)).generations[0]!.r2_key;
+    const key = (await evidence(i.transfer_id)).generations[0]!.provider_ref;
     await expect(
       acceptUpload(env, p, r.ticket_id!, request(), {
         afterStored: () => Promise.reject(new Error("publication transaction lost")),
@@ -125,7 +125,7 @@ describe("upload races across D1, R2 and the caller's response", () => {
   it("never lets a late write resurrect an abandoned object into a usable handle", async () => {
     const i = await intent("C");
     const r = await ensureTransfer(env, p, i);
-    const key = (await evidence(i.transfer_id)).generations[0]!.r2_key;
+    const key = (await evidence(i.transfer_id)).generations[0]!.provider_ref;
 
     // The put is entered and never returns an answer: the remote outcome is unknown.
     const hostile = withStaging({ put: () => Promise.reject(new Error("put outcome unknown")) });
@@ -181,7 +181,7 @@ describe("upload races across D1, R2 and the caller's response", () => {
     });
     expect(retry.ticket_id).not.toBe(first.ticket_id);
     const second = (await evidence(i.transfer_id)).generations.find((g) => g.generation !== first.generation)!;
-    expect(second.r2_key).not.toBe(first.r2_key);
+    expect(second.provider_ref).not.toBe(first.provider_ref);
 
     const done = await acceptUpload(env, p, retry.ticket_id!, request());
     expect(done.state).toBe("completed");
@@ -189,7 +189,7 @@ describe("upload races across D1, R2 and the caller's response", () => {
     // Exactly one authoritative object, and it is the retry's, not the abandoned generation's.
     const ev = await evidence(i.transfer_id);
     expect(ev.objects.length).toBe(1);
-    expect(ev.objects[0]!.r2_key).toBe(second.r2_key);
+    expect(ev.objects[0]!.provider_ref).toBe(second.provider_ref);
     expect(ev.generations.find((g) => g.generation === first.generation)).toMatchObject({
       state: "abandoned",
       writer_stopped: 0,
@@ -220,7 +220,7 @@ describe("upload races across D1, R2 and the caller's response", () => {
   it("admits one of two writers presenting the same ticket and publishes one object", async () => {
     const i = await intent("G");
     const r = await ensureTransfer(env, p, i);
-    const key = (await evidence(i.transfer_id)).generations[0]!.r2_key;
+    const key = (await evidence(i.transfer_id)).generations[0]!.provider_ref;
     const outcomes = await Promise.allSettled([
       acceptUpload(env, p, r.ticket_id!, request()),
       acceptUpload(env, p, r.ticket_id!, request()),
@@ -231,7 +231,7 @@ describe("upload races across D1, R2 and the caller's response", () => {
     expect(won.length).toBeGreaterThanOrEqual(1);
     const ev = await evidence(i.transfer_id);
     expect(ev.objects.length).toBe(1);
-    expect(ev.objects[0]!.r2_key).toBe(key);
+    expect(ev.objects[0]!.provider_ref).toBe(key);
     expect(ev.generations.length).toBe(1);
     expect(ev.transfer).toMatchObject({ state: "completed" });
     expect(
@@ -246,7 +246,7 @@ describe("upload races across D1, R2 and the caller's response", () => {
   it("refuses a body longer than the declared length and leaves nothing behind", async () => {
     const i = await intent("F");
     const r = await ensureTransfer(env, p, i);
-    const key = (await evidence(i.transfer_id)).generations[0]!.r2_key;
+    const key = (await evidence(i.transfer_id)).generations[0]!.provider_ref;
     const oversize = new Uint8Array(bytes.length + 16);
     oversize.set(bytes);
     await expect(acceptUpload(env, p, r.ticket_id!, request(oversize))).rejects.toMatchObject({

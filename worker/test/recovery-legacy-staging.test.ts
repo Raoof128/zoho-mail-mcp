@@ -88,7 +88,7 @@ for (const site of sites) {
       } else if (["107", "165", "171", "177"].includes(site.line)) {
         if (site.line !== "107")
           await e.DB.prepare(
-            "INSERT INTO staging_ingests(id,user_id,account_id,r2_key,reserved_bytes,lease_until,state,writer_stopped) VALUES(?,?,?,?,?,?,?,?)",
+            "INSERT INTO staging_ingests(id,user_id,account_id,provider_ref,reserved_bytes,lease_until,state,writer_stopped) VALUES(?,?,?,?,?,?,?,?)",
           )
             .bind(
               id,
@@ -192,7 +192,7 @@ for (const line of ["240", "275", "285", "301"]) {
       await seedRecovery(e, id, { linked: true });
       if (phase === "after")
         await settleDirect(e, id, {
-          gmail_result_id: "winner",
+          provider_result_id: "winner",
           message: { id: "winner", thread_id: "thread", label_ids: ["SENT"] },
         });
       const initial = await e.DB.prepare("SELECT * FROM staging_objects WHERE user_id=?").bind(id).first();
@@ -222,7 +222,7 @@ for (const phase of ["before", "after"] as const) {
     await seedRecovery(e, id, { linked: true });
     if (phase === "after")
       await settleDirect(e, id, {
-        gmail_result_id: "winner",
+        provider_result_id: "winner",
         message: { id: "winner", thread_id: "thread", label_ids: ["SENT"] },
       });
     const initial = await e.DB.prepare("SELECT * FROM staging_objects WHERE user_id=?").bind(id).first();
@@ -274,7 +274,7 @@ it("refuses captured deletion after legitimate protocol-2 cleanup admission", as
     id = "legacy-storage-delete";
   await seedRecovery(e, id, { linked: true });
   await settleDirect(e, id, {
-    gmail_result_id: "winner",
+    provider_result_id: "winner",
     message: { id: "winner", thread_id: "thread", label_ids: ["SENT"] },
   });
   const handle = await e.DB.prepare("SELECT handle FROM staging_objects WHERE user_id=?")

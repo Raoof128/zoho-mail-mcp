@@ -21,7 +21,7 @@ beforeAll(async () => {
   await seedUserAndAccount(env.DB, { userId: A, accountId: "acc-a2", alias: "work" });
   await seedUserAndAccount(env.DB, { userId: B, accountId: "acc-b", alias: "personal", isDefault: true });
   await env.DB.prepare(
-    "INSERT INTO accounts (id,user_id,alias,google_sub,google_email,send_as,org_domains,scopes,status,is_default,created_at) VALUES ('acc-rev',?,'revoked','sub-rev','rev@example.test','[]',NULL,'gmail.modify','revoked',0,?)",
+    "INSERT INTO accounts (id,user_id,alias,zoho_sub,zoho_email,send_as,org_domains,scopes,status,is_default,created_at,slot,expected_primary_email,zoho_account_id,location) VALUES ('acc-rev',?,'revoked','sub-rev','rev@example.test','[]',NULL,'gmail.modify','revoked',0,?,'rcp','rev@example.test','191000999','au')",
   )
     .bind(A, Date.now())
     .run();
@@ -189,7 +189,7 @@ describe("owner and account isolation", () => {
     const seedStaged = async (handle: string, userId: string, accountId: string, direction: string) => {
       const now = Date.now();
       await env.DB.prepare(
-        `INSERT INTO staging_objects (handle,user_id,account_id,direction,filename,mime,size,sha256,r2_key,created_at,expires_at,cleanup_state)
+        `INSERT INTO staging_objects (handle,user_id,account_id,direction,filename,mime,size,sha256,provider_ref,created_at,expires_at,cleanup_state)
          VALUES (?,?,?,?,'f.txt','text/plain',3,'${"a".repeat(64)}',?,?,?,'available')`,
       )
         .bind(handle, userId, accountId, direction, `k/${handle}`, now, now + 3_600_000)

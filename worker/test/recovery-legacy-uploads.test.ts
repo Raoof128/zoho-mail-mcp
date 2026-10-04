@@ -30,7 +30,7 @@ for (const site of sites) {
       .bind(id, transferId, id, `${id}-pending`, id, now, now + 60000, now + 120000)
       .run();
     await e.DB.prepare(
-      "INSERT INTO upload_generations(user_id,transfer_id,account_id,generation,ticket_id,state,issued_until,lease_until,r2_key,reserved_bytes,created_at) VALUES(?,?,?,1,?,'issued',?,?,?,1,?)",
+      "INSERT INTO upload_generations(user_id,transfer_id,account_id,generation,ticket_id,state,issued_until,lease_until,provider_ref,reserved_bytes,created_at) VALUES(?,?,?,1,?,'issued',?,?,?,1,?)",
     )
       .bind(id, transferId, id, id, now + 60000, now + 60000, `fixture/${id}`, now)
       .run();
@@ -260,7 +260,7 @@ for (const site of sites) {
         case "82":
         case "88":
           await e.DB.prepare(
-            "INSERT INTO staging_ingests(id,user_id,account_id,r2_key,reserved_bytes,lease_until,state,writer_stopped) VALUES(?,?,?,?,1,0,?,1)",
+            "INSERT INTO staging_ingests(id,user_id,account_id,provider_ref,reserved_bytes,lease_until,state,writer_stopped) VALUES(?,?,?,?,1,0,?,1)",
           )
             .bind(id, id, id, `ingest/${id}`, line === "73" ? "active" : line === "82" ? "debt" : "released")
             .run();

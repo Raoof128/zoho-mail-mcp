@@ -521,7 +521,7 @@ export async function runExecutor(t: ToolContext, run: ExecutorRun): Promise<Rec
       };
     }
   }
-  const gmailResultId = typeof out.gmail_result_id === "string" ? out.gmail_result_id : null;
+  const gmailResultId = typeof out.provider_result_id === "string" ? out.provider_result_id : null;
   const result: Record<string, unknown> = {
     status: "executed",
     account: run.account.alias,
