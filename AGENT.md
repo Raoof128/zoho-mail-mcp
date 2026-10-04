@@ -15,3 +15,18 @@ Agent work on this repository, newest last. Each entry: date (Australia/Sydney),
 **Verification:** `npm run verify` exit 0 after the fix pass: Worker 698 passed and 1 todo (90 files), shared 7, companion 23 passed and 1 skipped, qualification 165. Each of the 14 review-fix tests was watched failing for the stated reason before its fix. One verify run before that hit a 5 s timeout at load average 31 and passed on rerun. `gh repo view Raoof128/zoho-mail-mcp` reports PRIVATE; no `.env`, `.dev.vars` or key file is tracked.
 
 **Follow-ups:** M2 (read tools) is next; pin `toolCallId` uniqueness per invocation there (review minor 13). Run the M0 probe against the client's real Zoho to confirm `INVALID_OAUTHTOKEN` shape and the account `type` field. Deferred minors 7 to 15 are tracked in the zoho CHANGELOG. Merge `feat/m0-m1` into `main` only on Raouf's say-so.
+
+**M1 rulings (from the deleted ledger, 2026-10-04):**
+
+- Task 1.2: FakeGoogle gained a transitional Zoho Accounts face so 21 Gmail-era test files keep logging in. Cost if wrong: test-only, removed in M4 Task 4.2.
+- Task 1.2: `src/web` kept the Google connect form in `accounts.ts` until Task 1.4 replaced it. Tests now override `OWNER_ZOHO_SUBS` and assert the Zoho CSP. Cost if wrong: test-only.
+- Task 1.3: five needless casts in the plan's Durable Object test were removed. Cost if wrong: none.
+- Task 1.4: the plan's lease loop fell through to an unguarded refresh. It now refuses with `rate_limited` and uses another holder's token only when it is newer. A concurrent-refresh test was added and watched failing. Cost if wrong: a busy account waits instead of refreshing twice.
+- Task 1.4: the fake's revoke handler now reads `?token=`, as Zoho does. Cost if wrong: test-only.
+- Task 1.4: reconnects are keyed by slot, not by Zoho sub, because the org move returns the same mailbox under a new Zoho user. Cost if wrong: a reconnect could rebind a slot to another user who owns the same address.
+- Task 1.4: `connectRequired` resolves the slot from the alias. Organisation domains are deployment-wide, so the per-account form was removed. The Google connect test was deleted early. The accounts page keeps its per-account blocks. Cost if wrong: an owner cannot widen trusted domains per account.
+- Tasks 1.4 and 1.5: lint fixes were made in the plan's code blocks. Cost if wrong: none.
+- Task 1.6: `Deps.googleFetch` stays until M4 Task 4.2. Its production default refuses every request. Cost if wrong: one seam removed later.
+- Task 1.6: two recovery tests had reached the real accounts.zoho.com.au. Their stubs moved to `zohoFetch`, and `test/setup.ts` now rejects all real fetches. Cost if wrong: none.
+- Task 1.6: recovery-http now matches `ZOHO.tokenUrl`. The plan's flaky TTL test was made deterministic. Cost if wrong: none.
+- Final: the security review's "auth-bypass" in recovery-http is the same token leak, which the transport fix closed. The final reviewer ran on Sonnet, per Raouf's standing subagent rule. Cost if wrong: a weaker review; ask for a second pass.
