@@ -77,7 +77,7 @@ export async function readSession(db: D1Database, request: Request): Promise<Ses
   return { id, idHash, userId: row.user_id, authenticatedAt: row.authenticated_at, lastSeenAt: row.last_seen_at };
 }
 
-/** Spec 4.6: only a fresh Google login counts. Activity never extends it. */
+/** Spec 4.6: only a fresh Zoho login counts. Activity never extends it. */
 export function isRecentlyAuthenticated(s: Session, now = Date.now()): boolean {
   return now - s.authenticatedAt < RECENT_AUTH_MS;
 }

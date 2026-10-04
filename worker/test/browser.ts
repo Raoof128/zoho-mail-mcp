@@ -3,6 +3,7 @@ import { openRegistration } from "../src/auth/registration";
 import type { Env } from "../src/env";
 import type { WorkerHandler } from "../src/index";
 import type { FakeGoogle } from "./fake-google";
+import type { FakeZoho } from "./fake-zoho";
 import { HOST } from "./test-env";
 import { b64url } from "../src/crypto/random";
 
@@ -45,15 +46,15 @@ export class Browser {
     });
   }
 
-  /** Drives /login through the fake Google and ends with a session cookie. */
-  async login(g: FakeGoogle, o: { sub: string; email: string; returnTo?: string }): Promise<Response> {
+  /** Drives /login through the fake Zoho Accounts and ends with a session cookie. Either fake answers Zoho Accounts until M4 Task 4.2. */
+  async login(g: FakeGoogle | FakeZoho, o: { sub: string; email: string; returnTo?: string }): Promise<Response> {
     const start = await this.get(`/login${o.returnTo ? `?return=${encodeURIComponent(o.returnTo)}` : ""}`);
     if (start.status !== 303) throw new Error(`login start ${start.status}`);
-    const google = new URL(start.headers.get("location")!);
-    const state = google.searchParams.get("state")!;
-    const nonce = google.searchParams.get("nonce")!;
+    const zoho = new URL(start.headers.get("location")!);
+    const state = zoho.searchParams.get("state")!;
+    const nonce = zoho.searchParams.get("nonce")!;
     const code = g.grantCode({ sub: o.sub, email: o.email, nonce });
-    return this.get(`/oidc/callback?state=${encodeURIComponent(state)}&code=${encodeURIComponent(code)}`);
+    return this.get(`/zoho/login/callback?state=${encodeURIComponent(state)}&code=${encodeURIComponent(code)}`);
   }
 }
 

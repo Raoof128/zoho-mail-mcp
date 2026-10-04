@@ -46,7 +46,7 @@ export async function page(
   return htmlResponse(title, body, await chrome(env, session), status, extraFormActions);
 }
 
-/** Spec 4.6: a fresh Google login, not activity, unlocks policy edits and revocations. */
+/** Spec 4.6: a fresh Zoho login, not activity, unlocks policy edits and revocations. */
 export async function requireRecent(env: Env, session: Session, request: Request): Promise<Response | null> {
   if (isRecentlyAuthenticated(session)) return null;
   const url = new URL(request.url);
@@ -56,7 +56,7 @@ export async function requireRecent(env: Env, session: Session, request: Request
     session,
     "Recent login required",
     `<p>This change needs a login within the last 15 minutes.</p>
-<form method="post" action="/reauth"><input type="hidden" name="csrf" value="${escapeHtml(c.reauthCsrf)}"><input type="hidden" name="return" value="${escapeHtml(url.pathname)}"><button>Re-authenticate with Google</button></form>`,
+<form method="post" action="/reauth"><input type="hidden" name="csrf" value="${escapeHtml(c.reauthCsrf)}"><input type="hidden" name="return" value="${escapeHtml(url.pathname)}"><button>Sign in with Zoho again</button></form>`,
     403,
   );
 }

@@ -179,7 +179,7 @@ describe("authorization endpoint hardening", () => {
     const consent = await anon.get(consentPath);
     expect(consent.status).toBe(200);
     expect(consent.headers.get("content-security-policy")).toContain(
-      "form-action 'self' https://accounts.google.com http://localhost:5555",
+      "form-action 'self' https://accounts.zoho.com.au http://localhost:5555",
     );
     const html = await consent.text();
     expect(html).toContain("test client");
@@ -193,7 +193,7 @@ describe("authorization endpoint hardening", () => {
     expect(denied.location).toContain("iss=");
   });
   it("a remembered client skips consent for the same owner only", async () => {
-    const e = testEnv({ OWNER_GOOGLE_SUBS: "owner-sub,owner-two" });
+    const e = testEnv({ OWNER_ZOHO_SUBS: "owner-sub,owner-two" });
     const first = await mintToken(worker, e, g, { scope: "mcp" });
     const again = await mintToken(worker, e, g, { scope: "mcp", clientId: first.clientId, browser: first.browser });
     expect(again.accessToken).not.toBe("");

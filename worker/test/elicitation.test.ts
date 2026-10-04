@@ -8,7 +8,7 @@ import { callTool, modernCall } from "./mcp-client";
 import { testDeps, testEnv } from "./test-env";
 import { getPending } from "../src/approval/pending";
 
-const e = testEnv({ OWNER_GOOGLE_SUBS: "owner-sub,other-sub" });
+const e = testEnv({ OWNER_ZOHO_SUBS: "owner-sub,other-sub" });
 let g: FakeGoogle;
 let worker: ReturnType<typeof createWorker>;
 let token: string;

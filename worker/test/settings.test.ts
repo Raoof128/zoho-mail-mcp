@@ -32,7 +32,11 @@ describe("plan 2 scaffold", () => {
       "CSRF_HMAC_KEY",
       "GOOGLE_CLIENT_ID",
       "GOOGLE_CLIENT_SECRET",
-      "OWNER_GOOGLE_SUBS",
+      "ZOHO_CLIENT_ID",
+      "ZOHO_CLIENT_SECRET",
+      "OWNER_ZOHO_SUBS",
+      "SLOTS",
+      "ORG_DOMAINS",
       "OWNER_EMAILS",
       "WORKER_HOSTNAME",
     ])

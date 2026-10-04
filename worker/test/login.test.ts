@@ -1,15 +1,15 @@
 import { env } from "cloudflare:test";
 import { describe, it, expect, beforeAll } from "vitest";
 import { createWorker } from "../src/index";
-import { FakeGoogle } from "./fake-google";
+import { FakeZoho } from "./fake-zoho";
 import { Browser, csrfFrom } from "./browser";
 import { testEnv, testDeps } from "./test-env";
 import { SESSION_COOKIE } from "../src/web/session";
 
-let g: FakeGoogle;
+let g: FakeZoho;
 let worker: ReturnType<typeof createWorker>;
 beforeAll(async () => {
-  g = await FakeGoogle.create();
+  g = await FakeZoho.create();
   worker = createWorker(testDeps(g));
 });
 const E = () => testEnv();
@@ -43,7 +43,7 @@ describe("owner login", () => {
       email: "owner@example.test",
       nonce: google.searchParams.get("nonce")!,
     });
-    const cb = await evil.get(`/oidc/callback?state=${google.searchParams.get("state")}&code=${code}`);
+    const cb = await evil.get(`/zoho/login/callback?state=${google.searchParams.get("state")}&code=${code}`);
     expect(cb.headers.get("location")).toBe("/accounts");
   });
 
@@ -57,8 +57,8 @@ describe("owner login", () => {
     const c1 = g.grantCode({ sub: "owner-sub", email: "owner@example.test", nonce });
     const c2 = g.grantCode({ sub: "owner-sub", email: "owner@example.test", nonce });
     const [r1, r2] = await Promise.all([
-      b1.get(`/oidc/callback?state=${state}&code=${c1}`),
-      b2.get(`/oidc/callback?state=${state}&code=${c2}`),
+      b1.get(`/zoho/login/callback?state=${state}&code=${c1}`),
+      b2.get(`/zoho/login/callback?state=${state}&code=${c2}`),
     ]);
     expect([r1.status, r2.status].sort()).toEqual([303, 400]);
     expect([b1.cookies.has(SESSION_COOKIE), b2.cookies.has(SESSION_COOKIE)].filter(Boolean)).toHaveLength(1);
@@ -71,20 +71,20 @@ describe("owner login", () => {
     const state = google.searchParams.get("state")!;
     const nonce = google.searchParams.get("nonce")!;
     const code = g.grantCode({ sub: "owner-sub", email: "owner@example.test", nonce });
-    expect((await b.get(`/oidc/callback?state=${state}&code=${code}`)).status).toBe(303);
+    expect((await b.get(`/zoho/login/callback?state=${state}&code=${code}`)).status).toBe(303);
     const replay = g.grantCode({ sub: "owner-sub", email: "owner@example.test", nonce });
-    expect((await b.get(`/oidc/callback?state=${state}&code=${replay}`)).status).toBe(400);
-    expect((await b.get(`/oidc/callback?state=made-up&code=${replay}`)).status).toBe(400);
+    expect((await b.get(`/zoho/login/callback?state=${state}&code=${replay}`)).status).toBe(400);
+    expect((await b.get(`/zoho/login/callback?state=made-up&code=${replay}`)).status).toBe(400);
 
     const c = new Browser(worker, E());
     const s2 = new URL((await c.get("/login")).headers.get("location")!);
     const wrongNonce = g.grantCode({ sub: "owner-sub", email: "owner@example.test", nonce: "not-the-nonce" });
-    const res = await c.get(`/oidc/callback?state=${s2.searchParams.get("state")}&code=${wrongNonce}`);
+    const res = await c.get(`/zoho/login/callback?state=${s2.searchParams.get("state")}&code=${wrongNonce}`);
     expect(res.status).toBe(401);
     expect(c.cookies.has(SESSION_COOKIE)).toBe(false);
   });
 
-  it("refuses a Google identity that is not the owner, and never creates a session for it", async () => {
+  it("refuses a Zoho identity that is not the owner, and never creates a session for it", async () => {
     const b = new Browser(worker, E());
     const res = await b.login(g, { sub: "stranger", email: "stranger@example.test" });
     expect(res.status).toBe(403);
@@ -94,15 +94,15 @@ describe("owner login", () => {
     ).toEqual({ n: 0 });
   });
 
-  it("bootstrap: with OWNER_GOOGLE_SUBS empty, an OWNER_EMAILS address sees its sub and gets no session", async () => {
-    const b = new Browser(worker, testEnv({ OWNER_GOOGLE_SUBS: "" }));
+  it("bootstrap: with OWNER_ZOHO_SUBS empty, an OWNER_EMAILS address sees its sub and gets no session", async () => {
+    const b = new Browser(worker, testEnv({ OWNER_ZOHO_SUBS: "" }));
     const res = await b.login(g, { sub: "new-owner-sub", email: "owner@example.test" });
     expect(res.status).toBe(200);
     const html = await res.text();
     expect(html).toContain("new-owner-sub");
-    expect(html).toContain("Confirm this is the Google account you intend to trust");
+    expect(html).toContain("Confirm this is the Zoho account you intend to trust");
     expect(b.cookies.has(SESSION_COOKIE)).toBe(false);
-    const other = new Browser(worker, testEnv({ OWNER_GOOGLE_SUBS: "" }));
+    const other = new Browser(worker, testEnv({ OWNER_ZOHO_SUBS: "" }));
     expect((await other.login(g, { sub: "x", email: "someone@else.test" })).status).toBe(403);
   });
 
@@ -121,7 +121,7 @@ describe("owner login", () => {
       email: "owner@example.test",
       nonce: google.searchParams.get("nonce")!,
     });
-    const cb = await b.get(`/oidc/callback?state=${google.searchParams.get("state")}&code=${code}`);
+    const cb = await b.get(`/zoho/login/callback?state=${google.searchParams.get("state")}&code=${code}`);
     expect(cb.headers.get("location")).toBe("/policy");
     expect(b.cookies.get(SESSION_COOKIE)).toBe(sid);
     const row = await env.DB.prepare(
@@ -134,7 +134,9 @@ describe("owner login", () => {
       (await b.post("/reauth", { csrf: reauthCsrf, return: "https://evil.test/" })).headers.get("location")!,
     );
     const wrong = g.grantCode({ sub: "stranger", email: "s@example.test", nonce: start2.searchParams.get("nonce")! });
-    expect((await b.get(`/oidc/callback?state=${start2.searchParams.get("state")}&code=${wrong}`)).status).toBe(403);
+    expect((await b.get(`/zoho/login/callback?state=${start2.searchParams.get("state")}&code=${wrong}`)).status).toBe(
+      403,
+    );
 
     const csrf = csrfFrom(await (await b.get("/")).text(), "/logout");
     expect((await b.post("/logout", { csrf: "nope" })).status).toBe(403);

@@ -1,7 +1,7 @@
 import type { Env } from "../env";
 import { ownerEmails, ownerSubs } from "../env";
 import { randomId } from "../crypto/random";
-import { LOGIN_SCOPES, buildAuthUrl, exchangeCode, verifyIdToken } from "../google/oidc";
+import { LOGIN_SCOPES, buildAuthUrl, exchangeCode, verifyIdToken } from "../zoho/oidc";
 import { escapeHtml, htmlResponse, isInternalPath, redirect } from "./html";
 import { type Ctx, type Route, guardPost, page, readForm, requireSession, returnPath } from "./router";
 import { clearCookie, createSession, markReauthenticated, readSession, revokeSession } from "./session";
@@ -18,7 +18,7 @@ export type OidcState = {
 };
 
 export function loginRedirectUri(env: Env): string {
-  return `https://${env.WORKER_HOSTNAME}/oidc/callback`;
+  return `https://${env.WORKER_HOSTNAME}/zoho/login/callback`;
 }
 
 export async function startLogin(
@@ -37,7 +37,7 @@ export async function startLogin(
     nonce,
     offline: false,
   });
-  // Not redirect(): this one leaves the origin on purpose, to Google, from a URL we built ourselves.
+  // Not redirect(): this one leaves the origin on purpose, to Zoho, from a URL we built ourselves.
   return new Response(null, { status: 303, headers: { location: url, "cache-control": "no-store" } });
 }
 
@@ -57,7 +57,7 @@ async function oidcCallback(ctx: Ctx): Promise<Response> {
   if (url.searchParams.get("error"))
     return htmlResponse(
       "Login failed",
-      `<p>Google refused: ${escapeHtml(url.searchParams.get("error")!)}</p>`,
+      `<p>Zoho refused: ${escapeHtml(url.searchParams.get("error")!)}</p>`,
       null,
       400,
     );
@@ -65,6 +65,7 @@ async function oidcCallback(ctx: Ctx): Promise<Response> {
   if (!code) return htmlResponse("Login failed", "<p>No code.</p>", null, 400);
 
   const tokens = await exchangeCode(env, deps, { code, redirectUri: loginRedirectUri(env) });
+  if (!tokens.id_token) return htmlResponse("Login failed", "<p>Zoho returned no identity token.</p>", null, 400);
   const id = await verifyIdToken(env, deps, tokens.id_token, { nonce: st.nonce });
 
   const subs = ownerSubs(env);
@@ -72,11 +73,10 @@ async function oidcCallback(ctx: Ctx): Promise<Response> {
     if (ownerEmails(env).includes(id.email)) {
       return htmlResponse(
         "Set up the owner",
-        `<p>No owner is configured yet. Confirm this is the Google account you intend to trust, then set the
-Worker secret <code>OWNER_GOOGLE_SUBS</code> to this value and log in again:</p>
+        `<p>No owner is configured yet. Confirm this is the Zoho account you intend to trust, then set the
+Worker secret <code>OWNER_ZOHO_SUBS</code> to this value and log in again:</p>
 <pre>${escapeHtml(id.sub)}</pre>
-<p class="muted">Signed in as ${escapeHtml(id.email)}. Nothing was stored. For an address that is not a Gmail or
-Workspace mailbox, Google verifies that the address was confirmed once, not that it is still under your control.</p>`,
+<p class="muted">Signed in as ${escapeHtml(id.email)}. Nothing was stored. Zoho marks the address verified when the user confirmed it once.</p>`,
         null,
       );
     }
@@ -102,7 +102,7 @@ Workspace mailbox, Google verifies that the address was confirmed once, not that
     if (!current || current.idHash !== st.sessionIdHash || current.userId !== id.sub) {
       return htmlResponse(
         "Reauthentication failed",
-        "<p>The session changed or a different Google account was used.</p>",
+        "<p>The session changed or a different Zoho account was used.</p>",
         null,
         403,
       );
@@ -136,7 +136,7 @@ export const loginRoutes: Route[] = [
           "gmail-mcp",
           `<p><a href="/accounts">Accounts</a> · <a href="/policy">Policy</a> · <a href="/audit">Audit</a></p>`,
         );
-      return htmlResponse("gmail-mcp", `<p><a href="/login">Log in with Google</a></p>`, null);
+      return htmlResponse("gmail-mcp", `<p><a href="/login">Sign in with Zoho</a></p>`, null);
     },
   },
   {
@@ -144,7 +144,7 @@ export const loginRoutes: Route[] = [
     pattern: /^\/login$/,
     handler: ({ env, url }) => startLogin(env, { returnTo: returnPath(url), purpose: "login" }),
   },
-  { method: "GET", pattern: /^\/oidc\/callback$/, handler: oidcCallback },
+  { method: "GET", pattern: /^\/zoho\/login\/callback$/, handler: oidcCallback },
   {
     method: "POST",
     pattern: /^\/reauth$/,

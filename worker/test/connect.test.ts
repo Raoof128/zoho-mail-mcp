@@ -128,7 +128,7 @@ describe("connect an account", () => {
   });
 
   it("two first connections racing create one default; two reconnects of one sub keep one row", async () => {
-    const e = testEnv({ OWNER_GOOGLE_SUBS: "owner-sub,racer" });
+    const e = testEnv({ OWNER_ZOHO_SUBS: "owner-sub,racer" });
     const b1 = new Browser(worker, e);
     const b2 = new Browser(worker, e);
     await b1.login(g, { sub: "racer", email: "racer@example.test" });

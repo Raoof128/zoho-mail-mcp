@@ -8,9 +8,9 @@ export const PAGE_HEADERS: Record<string, string> = {
   // Origin header that the CSRF defence reads.
   "referrer-policy": "same-origin",
   // form-action also governs where a form submission may be *redirected* (Chrome enforces this),
-  // so the identity provider is listed: /reauth and /connect answer a form post with a 303 to Google.
+  // so the identity provider is listed: /reauth and /connect answer a form post with a 303 to Zoho.
   "content-security-policy":
-    "default-src 'none'; style-src 'self'; form-action 'self' https://accounts.google.com; frame-ancestors 'none'; base-uri 'none'",
+    "default-src 'none'; style-src 'self'; form-action 'self' https://accounts.zoho.com.au; frame-ancestors 'none'; base-uri 'none'",
   "x-content-type-options": "nosniff",
 };
 
@@ -18,8 +18,8 @@ export const PAGE_HEADERS: Record<string, string> = {
 export function pageHeaders(extraFormActions: string[] = []): Record<string, string> {
   if (extraFormActions.length === 0) return PAGE_HEADERS;
   const csp = PAGE_HEADERS["content-security-policy"]!.replace(
-    "form-action 'self' https://accounts.google.com",
-    `form-action 'self' https://accounts.google.com ${extraFormActions.join(" ")}`,
+    "form-action 'self' https://accounts.zoho.com.au",
+    `form-action 'self' https://accounts.zoho.com.au ${extraFormActions.join(" ")}`,
   );
   return { ...PAGE_HEADERS, "content-security-policy": csp };
 }

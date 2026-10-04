@@ -68,9 +68,45 @@ export class FakeGoogle {
     return code;
   }
 
+  private async zohoAccounts(req: Request, url: URL): Promise<Response> {
+    const ISS = "https://accounts.zoho.com.au";
+    if (url.pathname === "/oauth/v2/keys") return Response.json(this.jwks);
+    if (url.pathname === "/.well-known/openid-configuration")
+      return Response.json({ issuer: ISS, jwks_uri: `${ISS}/oauth/v2/keys`, token_endpoint: `${ISS}/oauth/v2/token` });
+    if (url.pathname === "/oauth/v2/token") {
+      this.tokenCalls++;
+      const form = await req.formData();
+      if (field(form, "client_id") !== "1000.ZOHOTEST" || field(form, "client_secret") !== "zsecret")
+        return Response.json({ error: "invalid_client_secret" });
+      if (field(form, "grant_type") !== "authorization_code") return Response.json({ error: "unsupported_grant_type" });
+      const rec = this.codes.get(field(form, "code"));
+      if (!rec) return Response.json({ error: "invalid_code" });
+      this.codes.delete(field(form, "code"));
+      return Response.json({
+        access_token: `at-${++this.accessCounter}`,
+        expires_in: 3600,
+        token_type: "Bearer",
+        scope: "openid email profile",
+        api_domain: "https://www.zohoapis.com.au",
+        id_token: await this.issue({
+          sub: rec.sub,
+          email: rec.email,
+          nonce: rec.nonce,
+          iss: ISS,
+          aud: "1000.ZOHOTEST",
+        }),
+      });
+    }
+    return new Response("not found", { status: 404 });
+  }
+
   readonly fetch: typeof fetch = async (input, init) => {
     const req = new Request(input, init);
     const url = new URL(req.url);
+    // Transitional Zoho Accounts face (M1 Task 1.2 ruling): owner login moved to Zoho, and the Gmail-era tests
+    // still log in through this fake until M4 Task 4.2 retires it. Same keys and code records; Zoho's issuer,
+    // audience, comma scopes and 200-with-{error} failure shape (verified live 2026-10-04).
+    if (url.origin === "https://accounts.zoho.com.au") return this.zohoAccounts(req, url);
     if (url.href === "https://www.googleapis.com/oauth2/v3/certs") return Response.json(this.jwks);
     if (url.href === "https://oauth2.googleapis.com/token") {
       this.tokenCalls++;

@@ -15,7 +15,7 @@ describe("html primitives", () => {
     const res = htmlResponse("T", "<p>x</p>", { logoutCsrf: "tok", reauthCsrf: "tok2" });
     const withClient = htmlResponse("T", "<p>x</p>", null, 200, ["http://localhost:5555"]);
     expect(withClient.headers.get("content-security-policy")).toContain(
-      "form-action 'self' https://accounts.google.com http://localhost:5555",
+      "form-action 'self' https://accounts.zoho.com.au http://localhost:5555",
     );
     expect(res.status).toBe(200);
     for (const [k, v] of Object.entries(PAGE_HEADERS)) expect(res.headers.get(k)).toBe(v);

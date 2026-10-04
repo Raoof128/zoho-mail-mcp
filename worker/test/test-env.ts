@@ -26,7 +26,6 @@ export function testEnv(overrides: Record<string, unknown> = {}): Env {
     CSRF_HMAC_KEY: K,
     GOOGLE_CLIENT_ID: "gid.apps.googleusercontent.com",
     GOOGLE_CLIENT_SECRET: "gsecret",
-    OWNER_GOOGLE_SUBS: "owner-sub",
     OWNER_EMAILS: "owner@example.test",
     WORKER_HOSTNAME: "zoho-mail-mcp.example.workers.dev",
     ZOHO_CLIENT_ID: "1000.ZOHOTEST",

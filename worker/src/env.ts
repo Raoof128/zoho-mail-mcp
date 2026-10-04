@@ -13,7 +13,6 @@ declare global {
       // Google stays declared until M1 Task 1.6 deletes worker/src/google.
       GOOGLE_CLIENT_ID: string;
       GOOGLE_CLIENT_SECRET: string;
-      OWNER_GOOGLE_SUBS: string;
       ZOHO_CLIENT_ID: string;
       ZOHO_CLIENT_SECRET: string;
       OWNER_ZOHO_SUBS: string; // comma separated Zoho subs allowed to log in; empty enables bootstrap
@@ -35,11 +34,6 @@ const csv = (s: string) =>
     .map((x) => x.trim())
     .filter((x) => x !== "");
 export function ownerSubs(env: Env): string[] {
-  // Still Google until M1 Task 1.2 switches login.ts; switching it here alone broke login, oauth and
-  // elicitation tests in the plan gauntlet (the Google login page read the Zoho list).
-  return csv(env.OWNER_GOOGLE_SUBS);
-}
-export function ownerZohoSubs(env: Env): string[] {
   return csv(env.OWNER_ZOHO_SUBS);
 }
 export function ownerEmails(env: Env): string[] {

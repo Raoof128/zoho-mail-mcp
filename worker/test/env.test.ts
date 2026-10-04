@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { ownerZohoSubs, slots, orgDomains } from "../src/env";
+import { ownerSubs, slots, orgDomains } from "../src/env";
 import { testEnv, testDeps } from "./test-env";
 import { FakeZoho } from "./fake-zoho";
 
@@ -9,7 +9,7 @@ describe("env", () => {
       OWNER_ZOHO_SUBS: " 111 , 222 ",
       SLOTS: JSON.stringify({ sarabi: "info@sarabisfinerugs.com.au", rcp: "info@rugcleaningpro.com.au" }),
     });
-    expect(ownerZohoSubs(e)).toEqual(["111", "222"]);
+    expect(ownerSubs(e)).toEqual(["111", "222"]);
     expect(slots(e)).toEqual({ sarabi: "info@sarabisfinerugs.com.au", rcp: "info@rugcleaningpro.com.au" });
     expect(orgDomains(testEnv({ ORG_DOMAINS: "sarabisfinerugs.com.au, rugcleaningpro.com.au" }))).toEqual([
       "sarabisfinerugs.com.au",
