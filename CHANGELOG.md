@@ -6,6 +6,31 @@ release.
 
 ## [Unreleased]
 
+### Zoho fork: M0 and M1 (2026-10-04)
+
+This repository is a fork of gmail-mcp being rebuilt for Zoho Mail (AU). The Gmail-era text below this
+section describes the parent project and is replaced milestone by milestone.
+
+- **M0 bootstrap.** Mechanical rename; one squashed schema with mailbox slots (`sarabi`, `rcp`), expected
+  addresses, Zoho account ids and sealed handles (no R2); Zoho secrets, slots and org domains in the
+  environment; Zoho actions, modifiers and error codes; an in-memory Zoho Accounts and Mail double; the
+  per-account Durable Object; a read-only conformance probe; test helpers.
+- **M1 identity.** Owner login is Sign in with Zoho (accounts.zoho.com.au). Connecting a slot binds it to
+  its expected address and refuses a different Zoho user with `account_mismatch`, storing nothing and
+  revoking the grant. Token refresh is single-flight under a lease in the account Durable Object, which
+  also holds the 25 per minute bucket, per-call budgets and a TTL cache. One Zoho client routes only to
+  mail.zoho.com.au and maps the array-shaped scope error to `insufficient_scope`.
+- **Security.** The retired Gmail transport refuses in production, so no Zoho token can reach Google.
+  Request paths cannot leave the account base, redirects are never followed, every retry pays the budget
+  and bucket, a streamed body is sent once, a failed code exchange revokes the minted refresh token, and a
+  stored grant is never revoked by a later failure. Tests can no longer reach the network.
+- **Deferred (final review minors):** revoke failures are silent and unaudited; reconnect does not revoke
+  the replaced grant; the accounts list is not filtered by account type; unknown token-endpoint errors map
+  to `internal` instead of `rate_limited`; the key-rotation re-encrypt can write a stale token; the
+  lease's newer-token check ignores `credential_version`; cache rows are never swept and `toolCallId`
+  uniqueness must be pinned in M2; small client robustness gaps; leftover "gmail-mcp" strings and the
+  `reconnect_required` versus `account_needs_reconnect` naming.
+
 The project is pre-release. A deployed Worker has now completed the whole chain against a real mailbox,
 so the sentence that stood here, that nothing had sent an email, is no longer true. The five external
 qualification gates remain `not_run`, release authority is unreachable by construction, and the served
