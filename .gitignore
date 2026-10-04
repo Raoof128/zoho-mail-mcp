@@ -16,3 +16,6 @@ CLAUDE.md
 
 # Private effective deployment configuration (real account topology)
 wrangler.prod.jsonc
+
+# Conformance probe output: real mailbox metadata from the client's account. Never commit.
+scripts/probe/out/

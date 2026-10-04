@@ -56,5 +56,10 @@ export default tseslint.config(
     files: ["**/*.mjs", "**/*.config.ts"],
     ...tseslint.configs.disableTypeChecked,
   },
+  {
+    // The Zoho conformance probe is a Node CLI run by hand against the client's mailbox (M0 Task 0.7).
+    files: ["scripts/probe/**/*.mjs"],
+    languageOptions: { globals: { fetch: "readonly", URLSearchParams: "readonly", process: "readonly" } },
+  },
   prettier,
 );
