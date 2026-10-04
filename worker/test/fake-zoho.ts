@@ -203,7 +203,7 @@ export class FakeZoho {
                 : "ZohoMail.messages.UPDATE"
               : "ZohoMail.messages.DELETE";
       if (!this.has(tok.scope, need)) return unauth("INVALID_OAUTHSCOPE");
-      return this.mail.fetch(req, accountId!, path!);
+      return this.mail.fetch(req, accountId, path!);
     }
     return new Response("unexpected host " + url.hostname, { status: 500 });
   };

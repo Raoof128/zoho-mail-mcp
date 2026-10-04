@@ -39,6 +39,18 @@ export type Msg = {
   references?: string;
   isDraft: boolean;
 };
+/** The fields the fake reads from a send, draft or reply body; every one is a string when present. */
+type MailBody = {
+  fromAddress?: string;
+  toAddress?: string;
+  ccAddress?: string;
+  subject?: string;
+  content?: string;
+  inReplyTo?: string;
+  mode?: string;
+  action?: string;
+  attachments?: { storeName: string }[];
+} & Record<string, unknown>;
 export type Fault = {
   status: number;
   errorCode?: string;
@@ -291,7 +303,7 @@ export class FakeZohoMail {
       });
     }
     if (req.method === "POST" && path === "/messages") {
-      const b = await req.json<Record<string, unknown>>();
+      const b = await req.json<MailBody>();
       for (const a of (b.attachments as { storeName: string }[] | undefined) ?? []) {
         const u = this.uploads.get(a.storeName);
         if (!u || u.at + this.uploadLifetimeMs < Date.now()) return this.err(400, "INVALID_ATTACHMENT");
@@ -320,7 +332,7 @@ export class FakeZohoMail {
     if (req.method === "POST" && reply) {
       const parent = this.get(accountId, reply[1]!);
       if (!parent) return this.err(404, "INVALID_MESSAGE");
-      const b = await req.json<Record<string, unknown>>();
+      const b = await req.json<MailBody>();
       if (b.action !== "Reply") return this.err(400, "INVALID_PARAMETER");
       const m = this.seedMessage(accountId, {
         folder: "Sent",
