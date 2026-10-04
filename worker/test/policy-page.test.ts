@@ -28,9 +28,9 @@ describe("policy page", () => {
   it("renders the matrix with defaults, the browser-only row, and the blocked extensions", async () => {
     const b = await owner();
     const html = await (await b.get("/policy")).text();
-    expect(html).toContain('name="g:send.message"');
-    expect(html).toContain('name="a:pp1:send.message"');
-    expect(html).toContain('name="a:pp2:send.message"');
+    expect(html).toContain('name="g:send.forward"');
+    expect(html).toContain('name="a:pp1:send.forward"');
+    expect(html).toContain('name="a:pp2:send.forward"');
     expect(html).not.toContain("pp3");
     expect(html).toContain("browser only");
     expect(html).toContain(".exe");
@@ -42,10 +42,10 @@ describe("policy page", () => {
     const other = await owner();
     const csrf = csrfFrom(await (await b.get("/policy")).text(), "/policy");
     await env.DB.prepare("UPDATE web_sessions SET authenticated_at = 1 WHERE user_id = 'owner-sub'").run();
-    const stale = await b.post("/policy", { csrf, "g:send.message": "allow" });
+    const stale = await b.post("/policy", { csrf, "g:send.forward": "allow" });
     expect(stale.status).toBe(403);
     expect(await stale.text()).toContain('name="return" value="/policy"');
-    expect(await effectiveLevel(env.DB, "owner-sub", "pp1", "send.message")).toBe("ask");
+    expect(await effectiveLevel(env.DB, "owner-sub", "pp1", "send.forward")).toBe("ask");
     await env.DB.prepare("UPDATE web_sessions SET authenticated_at = ? WHERE user_id = 'owner-sub'")
       .bind(Date.now())
       .run();
@@ -54,21 +54,21 @@ describe("policy page", () => {
       (
         await b.post("/policy", {
           csrf,
-          "g:send.message": "allow",
-          "a:pp2:send.message": "deny",
-          "a:pp3:send.message": "allow",
+          "g:send.forward": "allow",
+          "a:pp2:send.forward": "deny",
+          "a:pp3:send.forward": "allow",
           "g:made.up": "allow",
         })
       ).status,
     ).toBe(303);
-    expect(await effectiveLevel(env.DB, "owner-sub", "pp1", "send.message")).toBe("allow");
-    expect(await effectiveLevel(env.DB, "owner-sub", "pp2", "send.message")).toBe("deny");
-    expect(await effectiveLevel(env.DB, "other-owner", "pp3", "send.message")).toBe("ask");
+    expect(await effectiveLevel(env.DB, "owner-sub", "pp1", "send.forward")).toBe("allow");
+    expect(await effectiveLevel(env.DB, "owner-sub", "pp2", "send.forward")).toBe("deny");
+    expect(await effectiveLevel(env.DB, "other-owner", "pp3", "send.forward")).toBe("ask");
     const audit = await env.DB.prepare(
       "SELECT action, decision, summary FROM audit_log WHERE user_id = 'owner-sub' AND action = 'policy.edit' ORDER BY id DESC LIMIT 1",
     ).first<any>();
     expect(audit.decision).toBe("edited");
-    expect(audit.summary).toContain("g:send.message");
+    expect(audit.summary).toContain("g:send.forward");
     expect((await other.get("/policy")).status).toBe(303);
 
     const csrf2 = csrfFrom(await (await b.get("/policy")).text(), "/policy");
@@ -76,9 +76,9 @@ describe("policy page", () => {
       .bind(Date.now())
       .run();
     expect(
-      (await b.post("/policy", { csrf: csrf2, "g:send.message": "inherit", "a:pp2:send.message": "inherit" })).status,
+      (await b.post("/policy", { csrf: csrf2, "g:send.forward": "inherit", "a:pp2:send.forward": "inherit" })).status,
     ).toBe(303);
-    expect(await effectiveLevel(env.DB, "owner-sub", "pp2", "send.message")).toBe("ask");
+    expect(await effectiveLevel(env.DB, "owner-sub", "pp2", "send.forward")).toBe("ask");
     expect((await b.post("/policy", { csrf: csrf2, "g:trash.move": "yolo" })).status).toBe(400);
     expect(await effectiveLevel(env.DB, "owner-sub", "pp1", "trash.move")).toBe("ask");
   });
@@ -130,7 +130,7 @@ describe("policy page", () => {
 
     await env.DB.prepare("UPDATE web_sessions SET authenticated_at = 1 WHERE user_id = 'owner-sub'").run();
     expect((await b.post("/policy", { csrf, preset: "allow_all" })).status).toBe(403);
-    expect(await effectiveLevel(env.DB, "owner-sub", "pp1", "send.message")).toBe("ask");
+    expect(await effectiveLevel(env.DB, "owner-sub", "pp1", "send.forward")).toBe("ask");
     await env.DB.prepare("UPDATE web_sessions SET authenticated_at = ? WHERE user_id = 'owner-sub'")
       .bind(Date.now())
       .run();
@@ -138,7 +138,7 @@ describe("policy page", () => {
     expect((await b.post("/policy", { csrf, preset: "allow_all" })).status).toBe(303);
     for (const acc of ["pp1", "pp2"])
       for (const a of [
-        "send.message",
+        "send.forward",
         "send.draft",
         "send.forward",
         "label.manage",
@@ -153,7 +153,7 @@ describe("policy page", () => {
         "SELECT count(*) AS n FROM policies WHERE user_id = 'owner-sub' AND account_id IS NOT NULL",
       ).first<{ n: number }>())!.n,
     ).toBe(0);
-    expect(await effectiveLevel(env.DB, "other-owner", "pp3", "send.message")).toBe("ask");
+    expect(await effectiveLevel(env.DB, "other-owner", "pp3", "send.forward")).toBe("ask");
     const audit = await env.DB.prepare(
       "SELECT decision, summary FROM audit_log WHERE user_id = 'owner-sub' AND action = 'policy.edit' ORDER BY id DESC LIMIT 1",
     ).first<any>();

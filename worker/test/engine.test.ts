@@ -6,7 +6,8 @@ import { decide, effectiveLevel, setPolicy } from "../src/policy/engine";
 describe("effectiveLevel", () => {
   it("falls back to spec defaults", async () => {
     await seedUserAndAccount(env.DB, { userId: "e1", accountId: "e1a", alias: "personal" });
-    expect(await effectiveLevel(env.DB, "e1", "e1a", "send.message")).toBe("ask");
+    expect(await effectiveLevel(env.DB, "e1", "e1a", "send.message")).toBe("allow");
+    expect(await effectiveLevel(env.DB, "e1", "e1a", "send.forward")).toBe("ask");
     expect(await effectiveLevel(env.DB, "e1", "e1a", "read.search")).toBe("allow");
   });
   it("global override beats default, account override beats global", async () => {

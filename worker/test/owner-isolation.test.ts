@@ -68,10 +68,10 @@ describe("owner and account isolation", () => {
   });
 
   it("policy written for one account does not leak to another account of the same owner", async () => {
-    await setPolicy(env.DB, { userId: A, accountId: "acc-a", action: "send.message", level: "deny" });
-    expect(await effectiveLevel(env.DB, A, "acc-a", "send.message")).toBe("deny");
-    expect(await effectiveLevel(env.DB, A, "acc-a2", "send.message")).toBe("ask");
-    expect(await effectiveLevel(env.DB, B, "acc-b", "send.message")).toBe("ask");
+    await setPolicy(env.DB, { userId: A, accountId: "acc-a", action: "send.forward", level: "deny" });
+    expect(await effectiveLevel(env.DB, A, "acc-a", "send.forward")).toBe("deny");
+    expect(await effectiveLevel(env.DB, A, "acc-a2", "send.forward")).toBe("ask");
+    expect(await effectiveLevel(env.DB, B, "acc-b", "send.forward")).toBe("ask");
   });
 
   it("an owner-wide policy applies to the owner's accounts and to nobody else's", async () => {

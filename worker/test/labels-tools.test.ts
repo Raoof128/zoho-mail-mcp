@@ -21,6 +21,8 @@ beforeAll(async () => {
   await seedUserAndAccount(env.DB, { userId: "owner-sub", accountId: "la", alias: "personal", isDefault: true });
   await seedUserAndAccount(env.DB, { userId: "owner-sub", accountId: "lb", alias: "cold" });
   await seedAccessToken(e, { userId: "owner-sub", accountId: "la" });
+  // label.manage defaults to allow since M0 Task 0.4; these tests exercise its approval path, so the owner saves ask.
+  await setPolicy(env.DB, { userId: "owner-sub", accountId: null, action: "label.manage", level: "ask" });
   token = (await mintToken(worker, e, g, { scope: "mcp" })).accessToken;
 });
 
@@ -185,7 +187,7 @@ describe("spam and trash", () => {
   });
   it("Gmail's error is surfaced verbatim and the call is audited as failed", async () => {
     const r = await call("untrash_message", { account: "personal", message_id: "does-not-exist" });
-    expect(r.result).toMatchObject({ error: "gmail_error", details: { status: 404 } });
+    expect(r.result).toMatchObject({ error: "zoho_error", details: { status: 404 } });
     expect(r.result.message).toContain("Requested entity was not found.");
     const row = await env.DB.prepare(
       "SELECT phase, decision FROM audit_log WHERE user_id = 'owner-sub' AND tool = 'untrash_message' ORDER BY id DESC LIMIT 1",
@@ -224,7 +226,7 @@ describe("label.manage", () => {
     await setPolicy(env.DB, { userId: "owner-sub", accountId: "la", action: "label.manage", level: "allow" });
     gm().labels.set("Label_dup", { id: "Label_dup", name: "Dup", type: "user" });
     const r = await call("create_label", { account: "personal", display_name: "Dup" });
-    expect(r.result).toMatchObject({ error: "gmail_error", details: { status: 409 } });
+    expect(r.result).toMatchObject({ error: "zoho_error", details: { status: 409 } });
     expect(
       (
         await env.DB.prepare(

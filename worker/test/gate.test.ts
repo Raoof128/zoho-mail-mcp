@@ -243,7 +243,7 @@ describe("allow", () => {
     const r2 = parse(
       await run(ctx(), await input({ handles: [H("h2")], args: { to: ["x@example.test"], fail: "gmail_4xx" } })),
     );
-    expect(r2).toMatchObject({ error: "gmail_error", details: { status: 400 } });
+    expect(r2).toMatchObject({ error: "zoho_error", details: { status: 400 } });
     expect(r2.message).toContain("Invalid To header");
     expect(
       (

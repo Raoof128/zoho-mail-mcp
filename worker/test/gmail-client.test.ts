@@ -57,7 +57,7 @@ describe("gmailFetch", () => {
     gm.rejectAll = true;
     const before = gm.requests.length;
     await expect(gmailFetch(e, deps, acct, { method: "GET", path: "labels", retry: "safe" })).rejects.toMatchObject({
-      code: "gmail_error",
+      code: "zoho_error",
       status: 401,
     });
     expect(gm.requests.length - before).toBe(2);

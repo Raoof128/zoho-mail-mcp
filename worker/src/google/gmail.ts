@@ -40,7 +40,7 @@ export class GmailApiError extends McpError {
     public readonly googleMessage: string,
     public readonly reason: string | null,
   ) {
-    super("gmail_error", `gmail_error: ${status} ${googleMessage}`, { status, reason });
+    super("zoho_error", `gmail_error: ${status} ${googleMessage}`, { status, reason });
     this.name = "GmailApiError";
   }
 }

@@ -268,7 +268,7 @@ describe("update_draft", () => {
     expect(raw).toContain(btoa("two"));
     expect(raw).not.toContain("Content-Disposition: attachment");
     expect((await call("update_draft", { account: "personal", draft_id: "nope" })).result).toMatchObject({
-      error: "gmail_error",
+      error: "zoho_error",
       details: { status: 404 },
     });
   });

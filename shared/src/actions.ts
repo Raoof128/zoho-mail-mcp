@@ -8,6 +8,10 @@ export const ACTIONS = [
   "send.forward",
   "label.manage",
   "label.apply",
+  "folder.move",
+  "flag.set",
+  "read.mark",
+  "archive.set",
   "spam.mark",
   "spam.unmark",
   "trash.move",
@@ -21,7 +25,15 @@ export const ACTIONS = [
 ] as const;
 export type Action = (typeof ACTIONS)[number];
 
-export const MODIFIERS = ["+attachment", "+external", "+bulk", "+sensitive", "+overwrite"] as const;
+export const MODIFIERS = [
+  "+attachment",
+  "+external",
+  "+bulk",
+  "+sensitive",
+  "+overwrite",
+  "+destructive",
+  "+outside_outbox",
+] as const;
 export type Modifier = (typeof MODIFIERS)[number];
 
 export const LEVELS = ["allow", "ask", "deny"] as const;
@@ -32,16 +44,20 @@ export const DEFAULT_POLICY: Record<Action, Level | "browser"> = {
   "read.message": "allow",
   "read.attachment": "allow",
   "draft.write": "allow",
-  "send.message": "ask",
-  "send.draft": "ask",
+  "send.message": "allow",
+  "send.draft": "allow",
   "send.forward": "ask",
-  "label.manage": "ask",
+  "label.manage": "allow",
   "label.apply": "allow",
+  "folder.move": "allow",
+  "flag.set": "allow",
+  "read.mark": "allow",
+  "archive.set": "allow",
   "spam.mark": "ask",
   "spam.unmark": "allow",
   "trash.move": "ask",
   "trash.restore": "allow",
-  "attachment.stage_upload": "ask",
+  "attachment.stage_upload": "allow",
   "fs.save": "allow",
   "account.read": "allow",
   "account.connect": "ask",

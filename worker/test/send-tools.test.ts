@@ -47,6 +47,10 @@ beforeAll(async () => {
   await env.DB.prepare(
     "INSERT INTO contact_allowlist (user_id, account_id, pattern) VALUES ('owner-sub', 'sa', 'friend@example.test')",
   ).run();
+  // send.message and send.draft default to allow since M0 Task 0.4; these tests exercise the approval path,
+  // so the owner saves ask, which behaves exactly as the old default did.
+  await setPolicy(env.DB, { userId: "owner-sub", accountId: null, action: "send.message", level: "ask" });
+  await setPolicy(env.DB, { userId: "owner-sub", accountId: null, action: "send.draft", level: "ask" });
   token = (await mintToken(worker, e, g, { scope: "mcp" })).accessToken;
 });
 

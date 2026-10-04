@@ -158,7 +158,8 @@ describe("protocol", () => {
     const call = await rpc(worker, testEnv(), token, "tools/call", { name: "get_policy", arguments: {} }, 3);
     const parsed = JSON.parse(call.json?.result?.content?.[0]?.text as string);
     expect(parsed.account).toBe("personal");
-    expect(parsed.policy["send.message"]).toBe("ask");
+    expect(parsed.policy["send.message"]).toBe("allow");
+    expect(parsed.policy["send.forward"]).toBe("ask");
     expect(parsed.policy["policy.edit"]).toBe("browser");
   });
 });

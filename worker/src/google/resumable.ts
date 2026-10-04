@@ -52,7 +52,7 @@ export function describeSessionUrl(raw: string): SessionUrlShape {
 }
 const refused = (reason: string, raw: string) => {
   console.warn(JSON.stringify({ event: "resumable_session_refused", reason, shape: describeSessionUrl(raw) }));
-  return new McpError("gmail_error", "invalid resumable session endpoint");
+  return new McpError("zoho_error", "invalid resumable session endpoint");
 };
 /** Inspect raw grammar before URL can erase traversal. Never include capability text in errors. */
 export function validateSessionUrl(raw: string, endpoint: UploadEndpoint): URL {
