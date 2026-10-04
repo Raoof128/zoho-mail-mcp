@@ -12,8 +12,12 @@ describe("Zoho policy registry", () => {
     expect(DEFAULT_POLICY["send.forward"]).toBe("ask");
     expect(DEFAULT_POLICY["trash.move"]).toBe("ask");
     expect(DEFAULT_POLICY["spam.mark"]).toBe("ask");
-    expect(DEFAULT_POLICY["label.manage"]).toBe("allow");
-    expect(DEFAULT_POLICY["attachment.stage_upload"]).toBe("allow");
+    // Sequenced with their raising modifiers (security review of M0 Task 0.4): label.manage becomes allow in
+    // M4 Task 4.1 together with +destructive on delete_label; attachment.stage_upload becomes allow in M5 Task 5.3
+    // together with +outside_outbox. Until then an allow default would let a label delete, or staging from any
+    // root, run without approval.
+    expect(DEFAULT_POLICY["label.manage"]).toBe("ask");
+    expect(DEFAULT_POLICY["attachment.stage_upload"]).toBe("ask");
     for (const a of ["folder.move", "flag.set", "read.mark", "archive.set"] as const)
       expect(DEFAULT_POLICY[a]).toBe("allow");
     expect(DEFAULT_POLICY["policy.edit"]).toBe("browser");

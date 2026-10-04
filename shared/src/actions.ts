@@ -47,7 +47,8 @@ export const DEFAULT_POLICY: Record<Action, Level | "browser"> = {
   "send.message": "allow",
   "send.draft": "allow",
   "send.forward": "ask",
-  "label.manage": "allow",
+  // ask until M4 Task 4.1 adds +destructive on delete_label (security review of M0 Task 0.4).
+  "label.manage": "ask",
   "label.apply": "allow",
   "folder.move": "allow",
   "flag.set": "allow",
@@ -57,7 +58,8 @@ export const DEFAULT_POLICY: Record<Action, Level | "browser"> = {
   "spam.unmark": "allow",
   "trash.move": "ask",
   "trash.restore": "allow",
-  "attachment.stage_upload": "allow",
+  // ask until M5 Task 5.3 adds +outside_outbox (security review of M0 Task 0.4).
+  "attachment.stage_upload": "ask",
   "fs.save": "allow",
   "account.read": "allow",
   "account.connect": "ask",
