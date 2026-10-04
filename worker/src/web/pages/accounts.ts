@@ -8,7 +8,8 @@ import {
   openRegistration,
 } from "../../auth/registration";
 import { auditIntent } from "../../audit/log";
-import { revokeAccount } from "../../google/tokens";
+import { revokeAccount } from "../../zoho/tokens";
+import { slots, type Slot } from "../../env";
 import { parseAddress, toAsciiDomain } from "../../policy/recipients";
 import { csrfToken } from "../csrf";
 import { escapeHtml, redirect } from "../html";
@@ -21,10 +22,10 @@ type AccountRow = {
   id: string;
   alias: string;
   zoho_email: string;
+  slot: Slot;
   status: string;
   is_default: number;
   send_limit_bytes: number;
-  org_domains: string | null;
 };
 
 /**
@@ -40,7 +41,7 @@ function canonicalPattern(raw: string): string {
 async function render(env: Env, s: Session, notice?: string): Promise<Response> {
   const accounts = (
     await env.DB.prepare(
-      "SELECT id, alias, zoho_email, status, is_default, send_limit_bytes, org_domains FROM accounts WHERE user_id = ? ORDER BY alias",
+      "SELECT id, alias, slot, zoho_email, status, is_default, send_limit_bytes FROM accounts WHERE user_id = ? ORDER BY alias",
     )
       .bind(s.userId)
       .all<AccountRow>()
@@ -51,14 +52,15 @@ async function render(env: Env, s: Session, notice?: string): Promise<Response> 
       .all<{ account_id: string; pattern: string }>()
   ).results;
   const companion = await getCompanionClientId(env.DB);
-  const rows: string[] = [];
+  const controls = new Map<string, string>();
   for (const a of accounts) {
     const csrf = await csrfToken(env, s, "POST", "/accounts", a.id);
     const hidden = `<input type="hidden" name="csrf" value="${escapeHtml(csrf)}"><input type="hidden" name="account" value="${escapeHtml(a.id)}">`;
     const patterns = allow.filter((x) => x.account_id === a.id).map((x) => x.pattern);
-    rows.push(`<section data-account="${escapeHtml(a.id)}">
-<h2>${escapeHtml(a.alias)} <span class="muted">${escapeHtml(a.zoho_email)} · ${escapeHtml(a.status)}${a.is_default ? " · default" : ""}</span></h2>
-<p><a href="/connect?alias=${encodeURIComponent(a.alias)}">Reconnect</a></p>
+    controls.set(
+      a.id,
+      `<div data-account="${escapeHtml(a.id)}">
+<p class="muted">${escapeHtml(a.alias)} · ${escapeHtml(a.zoho_email)}${a.is_default ? " · default" : ""}</p>
 <form method="post" action="/accounts" class="inline">${hidden}<button name="op" value="default"${a.is_default || a.status !== "active" ? " disabled" : ""}>Make default</button></form>
 <form method="post" action="/accounts" class="inline">${hidden}<button name="op" value="revoke" class="deny"${a.status === "revoked" ? " disabled" : ""}>Revoke</button></form>
 <h3>Trusted recipients</h3>
@@ -66,14 +68,23 @@ async function render(env: Env, s: Session, notice?: string): Promise<Response> 
 <form method="post" action="/accounts">${hidden}<input name="pattern" placeholder="name@example.com or @example.com" required> <button name="op" value="allowlist_add">Add</button></form>
 <h3>Limits</h3>
 <form method="post" action="/accounts">${hidden}<label>Send limit (bytes) <input name="bytes" type="number" min="1" max="${MAX_SEND_LIMIT}" value="${a.send_limit_bytes}"></label> <button name="op" value="send_limit">Save</button></form>
-<form method="post" action="/accounts">${hidden}<label>Organisation domains (Workspace only, comma separated) <input name="domains" value="${escapeHtml((JSON.parse(a.org_domains ?? "[]") as string[]).join(", "))}"></label> <button name="op" value="org_domains">Save</button></form>
-</section>`);
+</div>`,
+    );
   }
+  // Spec 2.1: two fixed slots, each bound to the address it must connect to.
+  const configured = slots(env);
+  const rows = (Object.keys(configured) as Slot[]).map((slot) => {
+    const label = slot === "sarabi" ? "Sarabi's Fine Rugs" : "Rug Cleaning Pro";
+    const bound = accounts.filter((x) => x.slot === slot);
+    const status = bound.length ? bound.map((a) => escapeHtml(a.status)).join(", ") : "not connected";
+    return `<section data-slot="${slot}"><h2>${label} <span class="muted">${escapeHtml(configured[slot])} · ${status}</span></h2>
+<p>Sign in to Zoho as the user who owns <strong>${escapeHtml(configured[slot])}</strong>, then <a href="/connect?slot=${slot}">${bound.length ? "Reconnect" : "Connect"}</a>.</p>
+${bound.map((a) => controls.get(a.id) ?? "").join("\n")}</section>`;
+  });
   const companionCsrf = await csrfToken(env, s, "POST", "/accounts", "companion");
   const registrationCsrf = await csrfToken(env, s, "POST", "/accounts", "registration");
   const registrationOpen = await isRegistrationOpen(env.DB, Date.now());
   const body = `${notice ? `<p><strong>${escapeHtml(notice)}</strong></p>` : ""}
-<form method="get" action="/connect"><label>Connect a Google account as <input name="alias" pattern="[a-z0-9_-]{1,32}" required placeholder="personal"></label> <button>Connect</button></form>
 ${rows.join("\n")}
 <section data-account="companion">
 <h2>Local companion</h2>
@@ -161,7 +172,6 @@ export const accountsRoutes: Route[] = [
         op === "revoke" ||
         op === "allowlist_add" ||
         op === "allowlist_remove" ||
-        op === "org_domains" ||
         (op === "send_limit" && Number(form.get("bytes")) > acc.send_limit_bytes);
       if (widens) {
         const recent = await requireRecent(env, s, request);
@@ -222,23 +232,6 @@ export const accountsRoutes: Route[] = [
             .bind(bytes, acc.id, s.userId)
             .run();
           if (widens) await auditTrust(acc.id);
-          return redirect("/accounts");
-        }
-        case "org_domains": {
-          let domains: string[];
-          try {
-            domains = (form.get("domains") ?? "")
-              .split(",")
-              .map((d) => d.trim())
-              .filter((d) => d !== "")
-              .map(toAsciiDomain);
-          } catch {
-            return bad("each organisation domain must be a valid domain name");
-          }
-          await env.DB.prepare("UPDATE accounts SET org_domains = ? WHERE id = ? AND user_id = ?")
-            .bind(domains.length ? JSON.stringify(domains) : null, acc.id, s.userId)
-            .run();
-          await auditTrust(acc.id);
           return redirect("/accounts");
         }
         default:

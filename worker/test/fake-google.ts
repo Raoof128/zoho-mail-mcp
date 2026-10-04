@@ -71,6 +71,10 @@ export class FakeGoogle {
   private async zohoAccounts(req: Request, url: URL): Promise<Response> {
     const ISS = "https://accounts.zoho.com.au";
     if (url.pathname === "/oauth/v2/keys") return Response.json(this.jwks);
+    if (url.pathname === "/oauth/v2/token/revoke") {
+      this.revoked.add(url.searchParams.get("token") ?? "");
+      return Response.json({ status: "success" });
+    }
     if (url.pathname === "/.well-known/openid-configuration")
       return Response.json({ issuer: ISS, jwks_uri: `${ISS}/oauth/v2/keys`, token_endpoint: `${ISS}/oauth/v2/token` });
     if (url.pathname === "/oauth/v2/token") {

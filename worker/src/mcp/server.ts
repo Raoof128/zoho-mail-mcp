@@ -2,7 +2,7 @@ import { McpServer, type ServerContext } from "@modelcontextprotocol/server";
 import { z } from "zod";
 import { ACTIONS, DEFAULT_POLICY } from "@zoho-mail-mcp/shared/actions";
 import { AccountAlias } from "@zoho-mail-mcp/shared/schemas";
-import type { Env } from "../env";
+import { SLOT_NAMES, type Env } from "../env";
 import type { Deps } from "../deps";
 import type { Principal } from "../auth/principal";
 import { auditIntent } from "../audit/log";
@@ -44,13 +44,13 @@ export function buildServer(env: Env, principal: Principal, deps: Deps, era: Era
   server.registerTool(
     "list_accounts",
     {
-      description: "List connected Gmail accounts: alias, email, status, default flag. Never returns tokens.",
+      description: "List connected Zoho mailboxes: alias, slot, email, status, default flag. Never returns tokens.",
       inputSchema: z.object({}).strict(),
       annotations: { readOnlyHint: true },
     },
     async () => {
       const rows = await env.DB.prepare(
-        "SELECT alias, zoho_email AS email, status, is_default, scopes FROM accounts WHERE user_id = ? ORDER BY alias",
+        "SELECT alias, slot, zoho_email AS email, status, is_default, scopes FROM accounts WHERE user_id = ? ORDER BY alias",
       )
         .bind(principal.userId)
         .all();
@@ -127,11 +127,11 @@ export function buildServer(env: Env, principal: Principal, deps: Deps, era: Era
     "connect_account",
     {
       description:
-        "Connect or reconnect a Google account under an alias. Completes in the owner's browser; opens the page when the client can, else returns its URL.",
-      inputSchema: z.object({ alias: AccountAlias }).strict(),
+        "Connect or reconnect one of the two Zoho mailboxes by slot: sarabi (info@sarabisfinerugs.com.au) or rcp (info@rugcleaningpro.com.au). The owner signs in to Zoho as the user who owns that mailbox; a different user is refused. Completes in the owner's browser; opens the page when the client can, else returns its URL.",
+      inputSchema: z.object({ slot: z.enum(SLOT_NAMES) }).strict(),
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
     },
-    async ({ alias }, ctx) => {
+    async ({ slot }, ctx) => {
       await auditIntent(env.DB, {
         userId: principal.userId,
         accountId: null,
@@ -141,7 +141,7 @@ export function buildServer(env: Env, principal: Principal, deps: Deps, era: Era
         decision: "browser",
         facts: {},
       });
-      return connectRequired(toolContext(ctx), alias);
+      return connectRequired(toolContext(ctx), slot);
     },
   );
 

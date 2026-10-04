@@ -37,8 +37,12 @@ describe("accounts page", () => {
     const html = await (await b.get("/accounts")).text();
     expect(html).toContain("personal");
     expect(html).toContain("work");
+    // Two fixed slots, each with its connect or reconnect link (spec 2.1).
+    expect(html).toContain('data-slot="sarabi"');
+    expect(html).toContain('data-slot="rcp"');
+    expect(html).toContain('href="/connect?slot=sarabi"');
+    expect(html).not.toContain('name="alias"');
     expect(html).not.toContain("ac3");
-    expect(html).toContain('action="/connect"');
     expect(html).not.toMatch(/refresh_token|access_token/);
   });
 
@@ -122,30 +126,15 @@ describe("accounts page", () => {
       (await b.post("/accounts", { op: "send_limit", account: "ac1", bytes: "99999999999", csrf: t })).status,
     ).toBe(400);
     expect((await b.post("/accounts", { op: "send_limit", account: "ac1", bytes: "0", csrf: t })).status).toBe(400);
+    // Organisation domains are deployment-wide (ORG_DOMAINS, written at connect); the page no longer edits them.
     expect(
-      (
-        await b.post("/accounts", {
-          op: "org_domains",
-          account: "ac1",
-          domains: "Uni.edu.au, staff.uni.edu.au, bücher.example",
-          csrf: t,
-        })
-      ).status,
-    ).toBe(303);
-    expect(
-      (await b.post("/accounts", { op: "org_domains", account: "ac1", domains: "bad domain", csrf: t })).status,
-    ).toBe(400);
-    expect(
-      (await b.post("/accounts", { op: "org_domains", account: "ac1", domains: "foo..com", csrf: t })).status,
-    ).toBe(400);
-    expect(
-      (await b.post("/accounts", { op: "org_domains", account: "ac1", domains: "-foo.com", csrf: t })).status,
+      (await b.post("/accounts", { op: "org_domains", account: "ac1", domains: "evil.example", csrf: t })).status,
     ).toBe(400);
     const row = await env.DB.prepare(
       "SELECT send_limit_bytes, org_domains FROM accounts WHERE id = 'ac1'",
     ).first<any>();
     expect(row.send_limit_bytes).toBe(10485760);
-    expect(JSON.parse(row.org_domains)).toEqual(["uni.edu.au", "staff.uni.edu.au", "xn--bcher-kva.example"]);
+    expect(row.org_domains).toBeNull();
 
     // A decrease needs no recent auth; an increase does.
     await env.DB.prepare("UPDATE web_sessions SET authenticated_at = 1 WHERE user_id = 'owner-sub'").run();
@@ -168,11 +157,11 @@ describe("accounts page", () => {
       ).all<any>()
     ).results.map((r) => r.summary);
     expect(audits).toContain("ids=allowlist_add");
-    expect(audits).toContain("ids=org_domains");
+    expect(audits).not.toContain("ids=org_domains");
     expect(audits).toContain("ids=send_limit");
   });
 
-  it("revoke needs recent authentication, wipes tokens, tells Google, and logs out other sessions", async () => {
+  it("revoke needs recent authentication, wipes tokens, tells Zoho, and logs out other sessions", async () => {
     const b = await owner();
     const other = await owner();
     const ring = Keyring.fromEnv(testEnv());

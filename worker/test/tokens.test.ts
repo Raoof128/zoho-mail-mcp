@@ -1,16 +1,18 @@
 import { env } from "cloudflare:test";
 import { describe, it, expect, beforeAll } from "vitest";
-import { FakeGoogle } from "./fake-google";
+import { FakeZoho } from "./fake-zoho";
 import { testEnv, testDeps } from "./test-env";
 import { Keyring } from "../src/crypto/keyring";
-import { getAccessToken, revokeAccount } from "../src/google/tokens";
+import { getAccessToken, revokeAccount } from "../src/zoho/tokens";
 import { seedUserAndAccount } from "./fixtures";
 
 const K1 = "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE=";
 const K2 = "AgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgI=";
-let g: FakeGoogle;
+let g: FakeZoho;
+const ok = { state: "ok" as const, sub: "s", scope: "ZohoMail.messages.ALL" };
+const dead = { state: "invalid_grant" as const, sub: "s", scope: "" };
 beforeAll(async () => {
-  g = await FakeGoogle.create();
+  g = await FakeZoho.create();
   await seedUserAndAccount(env.DB, { userId: "tu", accountId: "ta", alias: "personal", isDefault: true });
   await seedUserAndAccount(env.DB, { userId: "tu", accountId: "tb", alias: "second" });
   await seedUserAndAccount(env.DB, { userId: "tv", accountId: "tc", alias: "personal", isDefault: true });
@@ -32,9 +34,9 @@ async function seedTokens(
 }
 
 describe("access tokens", () => {
-  it("returns a cached token without calling Google, refreshes when it is about to expire", async () => {
+  it("returns a cached token without calling Zoho, refreshes when it is about to expire", async () => {
     const e = testEnv();
-    g.refreshTokens.set("rt-a", "ok");
+    g.refreshTokens.set("rt-a", ok);
     await seedTokens(e, "ta", { refresh: "rt-a", access: "cached", expiresAt: Date.now() + 10 * 60_000 });
     const calls = g.tokenCalls;
     expect(await getAccessToken(e, testDeps(g), "tu", "ta")).toBe("cached");
@@ -52,7 +54,7 @@ describe("access tokens", () => {
 
   it("invalid_grant flips the account to needs_reconnect and wipes the access token", async () => {
     const e = testEnv();
-    g.refreshTokens.set("rt-dead", "invalid_grant");
+    g.refreshTokens.set("rt-dead", dead);
     await seedTokens(e, "tb", { refresh: "rt-dead" });
     await expect(getAccessToken(e, testDeps(g), "tu", "tb")).rejects.toMatchObject({
       code: "account_needs_reconnect",
@@ -67,7 +69,7 @@ describe("access tokens", () => {
 
   it("re-encrypts lazily under the current key after a rotation", async () => {
     const old = testEnv();
-    g.refreshTokens.set("rt-rot", "ok");
+    g.refreshTokens.set("rt-rot", ok);
     await seedTokens(old, "ta", { refresh: "rt-rot", access: "cached", expiresAt: Date.now() + 10 * 60_000 });
     const rotated = testEnv({ TOKEN_KEKS: JSON.stringify({ k1: K1, k2: K2 }), TOKEN_KEK_CURRENT: "k2" });
     expect(await getAccessToken(rotated, testDeps(g), "tu", "ta")).toBe("cached");
@@ -89,7 +91,7 @@ describe("access tokens", () => {
 
   it("a revoke that lands while a refresh is in flight wins: the refresh result is discarded", async () => {
     const e = testEnv();
-    g.refreshTokens.set("rt-race", "ok");
+    g.refreshTokens.set("rt-race", ok);
     await seedTokens(e, "ta", { refresh: "rt-race", access: "old", expiresAt: Date.now() + 1000 });
     g.beforeRefresh = async () => {
       await revokeAccount(e, testDeps(g), "tu", "ta");
@@ -109,7 +111,7 @@ describe("access tokens", () => {
 
   it("a lazy re-encrypt that races a revoke cannot resurrect ciphertexts", async () => {
     const old = testEnv();
-    g.refreshTokens.set("rt-rot2", "ok");
+    g.refreshTokens.set("rt-rot2", ok);
     await env.DB.prepare("UPDATE accounts SET status = 'active', credential_version = 0 WHERE id = 'tb'").run();
     await seedTokens(old, "tb", { refresh: "rt-rot2", access: "cached", expiresAt: Date.now() + 10 * 60_000 });
     const rotated = testEnv({ TOKEN_KEKS: JSON.stringify({ k1: K1, k2: K2 }), TOKEN_KEK_CURRENT: "k2" });
@@ -126,12 +128,12 @@ describe("access tokens", () => {
     expect(row).toEqual({ refresh_token_enc: null, access_token_enc: null });
   });
 
-  it("ownership is in the query, and revoke wipes ciphertexts before telling Google", async () => {
+  it("ownership is in the query, and revoke wipes ciphertexts before telling Zoho", async () => {
     const e = testEnv();
     await expect(getAccessToken(e, testDeps(g), "tv", "ta")).rejects.toMatchObject({
       code: "account_not_found",
     });
-    g.refreshTokens.set("rt-rev", "ok");
+    g.refreshTokens.set("rt-rev", ok);
     await seedTokens(e, "ta", { refresh: "rt-rev", access: "x", expiresAt: Date.now() + 600_000 });
     const before = (await env.DB.prepare("SELECT credential_version AS v FROM accounts WHERE id = 'ta'").first<any>())
       .v;
@@ -148,5 +150,29 @@ describe("access tokens", () => {
       access_token_enc: null,
       refresh_token_key_id: null,
     });
+  });
+
+  it("concurrent refreshes of an expiring token make exactly one call to Zoho (spec D8 single flight)", async () => {
+    const e = testEnv();
+    g.refreshTokens.set("rt-one", ok);
+    await env.DB.prepare("UPDATE accounts SET status = 'active', credential_version = 0 WHERE id = 'ta'").run();
+    await seedTokens(e, "ta", { refresh: "rt-one", access: "stale", expiresAt: Date.now() + 30_000 });
+    const d = testDeps(g, { sleep: () => new Promise((r) => setTimeout(r, 20)) });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    g.beforeRefresh = () => gate;
+    const calls = g.tokenCalls;
+    try {
+      const first = getAccessToken(e, d, "tu", "ta");
+      const second = getAccessToken(e, d, "tu", "ta");
+      await new Promise((r) => setTimeout(r, 60));
+      release();
+      const [a, b] = await Promise.all([first, second]);
+      expect(a).toMatch(/^at-/);
+      expect(b).toBe(a);
+      expect(g.tokenCalls).toBe(calls + 1);
+    } finally {
+      g.beforeRefresh = null;
+    }
   });
 });

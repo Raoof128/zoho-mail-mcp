@@ -1,10 +1,13 @@
 import { McpError } from "@zoho-mail-mcp/shared/errors";
-import type { Env } from "../env";
+import type { Env, Slot } from "../env";
 import type { TrustContext } from "../policy/recipients";
 
 export type AccountRef = {
   id: string;
   alias: string;
+  slot: Slot;
+  zohoAccountId: string;
+  location: "au";
   email: string;
   sendAs: string[];
   orgDomains: string[];
@@ -14,6 +17,9 @@ type Row = {
   id: string;
   alias: string;
   zoho_email: string;
+  slot: Slot;
+  zoho_account_id: string;
+  location: "au";
   send_as: string;
   org_domains: string | null;
   send_limit_bytes: number;
@@ -30,13 +36,16 @@ function toRef(row: Row): AccountRef {
     id: row.id,
     alias: row.alias,
     email: row.zoho_email,
+    slot: row.slot,
+    zohoAccountId: row.zoho_account_id,
+    location: row.location,
     sendAs: JSON.parse(row.send_as) as string[],
     orgDomains: JSON.parse(row.org_domains ?? "[]") as string[],
     sendLimitBytes: row.send_limit_bytes,
   };
 }
 
-const COLS = "id, alias, zoho_email, send_as, org_domains, send_limit_bytes, status";
+const COLS = "id, alias, slot, zoho_email, zoho_account_id, location, send_as, org_domains, send_limit_bytes, status";
 
 /** Explicit alias, or the default. Ownership is in the query. */
 export async function resolveAccount(env: Env, userId: string, alias?: string): Promise<AccountRef> {

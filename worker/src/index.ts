@@ -9,7 +9,7 @@ import { defaultDeps, type Deps } from "./deps";
 import { isCompanionName } from "./auth/companion";
 import { isRegistrationOpen } from "./auth/registration";
 import { authorizeRoutes } from "./auth/authorize";
-import { connectRoutes } from "./google/connect";
+import { connectRoutes } from "./zoho/connect";
 import { accountsRoutes } from "./web/pages/accounts";
 import { approveRoutes } from "./web/pages/approve";
 import { auditRoutes } from "./web/pages/audit";

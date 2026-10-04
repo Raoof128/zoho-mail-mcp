@@ -151,8 +151,11 @@ export class FakeZoho {
       }
       return Response.json({ error: "unsupported_grant_type" });
     }
-    if (url.href === `${ISSUER}/oauth/v2/token/revoke`) {
-      this.revoked.add(field(await req.formData(), "token"));
+    // Zoho takes the token as a query parameter (`POST /oauth/v2/token/revoke?token=...`), not a form body.
+    if (url.origin === ISSUER && url.pathname === "/oauth/v2/token/revoke") {
+      const token = url.searchParams.get("token") ?? "";
+      this.revoked.add(token);
+      this.refreshTokens.delete(token);
       return Response.json({ status: "success" });
     }
     if (url.hostname === "mail.zoho.com.au") {

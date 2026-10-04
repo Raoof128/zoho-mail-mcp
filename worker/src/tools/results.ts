@@ -4,7 +4,7 @@ import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { PendingApprovalResult } from "@zoho-mail-mcp/shared/schemas";
 import type { Env } from "../env";
 import type { PendingRow } from "../approval/pending";
-import { connectUrl } from "../google/connect";
+import { connectUrl } from "../zoho/connect";
 import type { ToolContext } from "./gate";
 
 export type ToolResult = CallToolResult | InputRequiredResult;
@@ -61,11 +61,16 @@ export function pendingApprovalResult(env: Env, row: PendingRow, alias: string):
 
 /** Spec 3.3: a needs_reconnect account answers with the connect page, as elicitation when the client can open one. */
 export async function connectRequired(t: ToolContext, alias: string): Promise<ToolResult> {
-  const url = await connectUrl(t.env, t.principal.userId, alias);
+  // The connect page works by slot. A connected account's alias is its slot; an alias the owner set some
+  // other way is looked up, and a name that is already a slot (connect_account) passes through.
+  const row = await t.env.DB.prepare("SELECT slot FROM accounts WHERE user_id = ? AND alias = ?")
+    .bind(t.principal.userId, alias)
+    .first<{ slot: string }>();
+  const url = await connectUrl(t.env, t.principal.userId, row?.slot ?? alias);
   if (t.urlElicitation) {
     return inputRequired({
       inputRequests: {
-        connect: inputRequired.elicitUrl({ message: `Reconnect the Gmail account "${alias}" to continue.`, url }),
+        connect: inputRequired.elicitUrl({ message: `Reconnect the Zoho mailbox "${alias}" to continue.`, url }),
       },
     });
   }

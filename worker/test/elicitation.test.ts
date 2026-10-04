@@ -312,22 +312,15 @@ describe("needs_reconnect and connect_account", () => {
       { capabilities: URL_CAPS },
     );
     expect(modern.inputRequired).toMatchObject({ inputRequests: { connect: { params: { mode: "url" } } } });
-    expect(modern.inputRequired.inputRequests.connect.params.url).toMatch(/\/connect\?alias=personal&e=/);
+    expect(modern.inputRequired.inputRequests.connect.params.url).toMatch(/\/connect\?slot=sarabi&e=/);
     const legacy = await callTool(worker, e, token, "list_labels", { account: "personal" });
     expect(legacy.result).toMatchObject({ status: "connect_required", account: "personal" });
     await env.DB.prepare("UPDATE accounts SET status = 'active' WHERE id = 'ea'").run();
   });
   it("connect_account is an elicitation on the modern era and a URL otherwise", async () => {
-    const modern = await modernCall(
-      worker,
-      e,
-      token,
-      "connect_account",
-      { alias: "newone" },
-      { capabilities: URL_CAPS },
-    );
-    expect(modern.inputRequired.inputRequests.connect.params.url).toMatch(/\/connect\?alias=newone&e=/);
-    const legacy = await callTool(worker, e, token, "connect_account", { alias: "newone" });
-    expect(legacy.result).toMatchObject({ status: "connect_required", account: "newone" });
+    const modern = await modernCall(worker, e, token, "connect_account", { slot: "rcp" }, { capabilities: URL_CAPS });
+    expect(modern.inputRequired.inputRequests.connect.params.url).toMatch(/\/connect\?slot=rcp&e=/);
+    const legacy = await callTool(worker, e, token, "connect_account", { slot: "rcp" });
+    expect(legacy.result).toMatchObject({ status: "connect_required", account: "rcp" });
   });
 });
