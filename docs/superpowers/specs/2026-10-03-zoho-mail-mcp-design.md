@@ -1,0 +1,383 @@
+# Zoho Mail MCP for the client: design
+
+Date: 2026-10-03 (Australia/Sydney). Revision 2 (gauntlet rounds 1 and 2 applied, sections 12 and 13). Status: DRAFT for Raouf's review. No code exists yet.
+Owner of the build: Raouf. Owner of the running system: the client (Sarabi's Fine Rugs and Rug Cleaning Pro).
+
+Companion to the Gmail MCP design at `~/Desktop/Raouf/gmail/docs/superpowers/specs/2026-09-09-gmail-mcp-design.md`.
+Where this document is silent, the Gmail design applies unchanged. Where they disagree, this document wins for the Zoho build.
+
+Sources checked on 2026-10-03 are saved verbatim in `2026-10-03-zoho-sources/` beside this file (Zoho Mail API pages, Zoho OAuth and OIDC pages, Zoho rates and limits). Cloudflare, Codex and Claude facts are quoted in section 9 with their URLs.
+
+Everything about reading Zoho mail (search syntax, thread filtering, header shape, archive behaviour, draft attachments, upload store lifetime) is **provisional until the conformance probe in section 8 runs against the client's own API client**. Gauntlet round 1 could not run a single read (section 12, G9).
+
+## 0. Problem and goal
+
+The client runs two mailboxes on Zoho Mail (AU data centre): `info@sarabisfinerugs.com.au` and `info@rugcleaningpro.com.au`. They want to use them from Claude (Desktop, Code, claude.ai) and from Codex (CLI and app) on their own Mac, with attachments that go to and from disk, without anyone else operating or approving on their behalf.
+
+Raouf's Gmail MCP already solves this for Gmail: a Cloudflare Worker that is the only authority, a server-enforced `allow | ask | deny` policy, approvals bound to the exact bytes they approve, attachment transfer that keeps file bytes out of model context, and a thin macOS companion for disk I/O. This build gives the client the same thing for Zoho.
+
+Goals, in order:
+
+1. **Convenience for the client is the top constraint.** One sign-in (Zoho), one page to connect mailboxes, one copy-paste line to set up the Mac, one URL paste for Claude Desktop and claude.ai. Nothing to sign, build, enable or maintain.
+2. Full tool parity with the Gmail MCP, adapted to Zoho's folders, labels, threads and flags.
+3. The same safety model: the Worker decides, approvals cannot be forged by a model, the server never expunges mail, `delivery_unknown` is never retried and never guessed.
+4. The client owns the deployment: their Cloudflare account, their Zoho API client, their domain. Raouf keeps deploy access by a scoped token and can hand it over.
+
+What each client gets, stated precisely:
+
+| Client | Mailbox tools (remote Worker) | Attachments to and from the Mac (local companion) |
+|---|---|---|
+| Claude Code | yes | yes |
+| Codex CLI and app | yes | yes |
+| Claude Desktop | yes (custom connector) | yes (local server entry written by the installer) |
+| claude.ai in the browser | yes | **no**: remote connectors run from Anthropic's cloud and cannot reach the Mac. Downloads from claude.ai are offered as a one-time link on the Worker instead. |
+
+Non-goals: multi-tenant operation (one owner only), Windows or Linux companions, calendar and contacts, Zoho Mail360, mail migration (that is the separate org-move plan).
+
+## 1. Decisions
+
+| # | Decision | Reason |
+|---|---|---|
+| D1 | Fork the Gmail MCP into a new repository `zoho-mail-mcp` and swap the provider layer. | The provider-neutral core (policy, approval, journal, OAuth provider, web, companion protocol; about 6,000 lines) is proven; only `worker/src/google`, the tool layer and the byte store speak Gmail or R2. A multi-provider refactor of the live Gmail server was rejected as slower and riskier for a first delivery. |
+| D2 | Owner sign-in is **Sign in with Zoho** (OpenID Connect on `accounts.zoho.com.au`). No Google identity anywhere. The owner key is the `sub` claim; `state`, `nonce`, signature against the JWKS, `iss`, `aud` and `exp` are all validated. | The client has Zoho, not Google. Zoho's AU discovery document is live with `openid email profile`, userinfo, JWKS (RS256) and S256 PKCE (section 9). Zoho names `sub` as the stable identifier. |
+| D3 | One owner, two connected accounts, each bound to a named slot (`sarabi`, `rcp`) with an expected primary address. Each mailbox is connected by its own Zoho user. The connect callback refuses with `account_mismatch` if the Zoho account returned is not the slot's expected address. | Verified live on 2026-10-03: the Zoho user that owns `info@sarabisfinerugs.com.au` lists exactly one mailbox; the RCP address is only a send-as alias on it. Reading RCP mail needs the RCP user's consent. Binding the slot stops a wrong Zoho login from silently becoming "rcp". |
+| D4 | Deploy into the client's Cloudflare account at `mail-mcp.sarabisfinerugs.com.au` (Workers custom domain on a zone we already manage). | The client owns it outright. |
+| D5 | The Zoho API client is a **Server-based Application** created in the client's Zoho API console on the AU data centre, redirect URIs `https://mail-mcp.sarabisfinerugs.com.au/zoho/callback` and `/zoho/login/callback`. | Zoho requires server-side code exchange for a confidential client; the API console is per Zoho account and lives in the user's data centre. |
+| D6 | Least-privilege mail scopes, comma-separated: `ZohoMail.messages.READ`, `ZohoMail.messages.CREATE`, `ZohoMail.messages.UPDATE`, `ZohoMail.folders.READ`, `ZohoMail.tags.ALL`, `ZohoMail.accounts.READ`, plus `openid,email` on the same consent. **No `messages.DELETE` and no `folders` write.** Token responses report these as `VirtualOffice.*`; the scope check accepts both spellings. Zoho enforces the suffix strictly (verified live, section 12). | Every "delete" in this design is a move to Trash, which `moveMessage` does under `messages.UPDATE`. Without the DELETE scope the token cannot expunge even if the Worker is tricked. The design creates no folders. |
+| D7 | Route API calls on the deployment's data centre, `au`, to `https://mail.zoho.com.au/api` (Zoho's published base URL table). The token response's `location` is honoured when present and must be `au`; `api_domain`, when present, must end in `.com.au` as a sanity check and is never used as a host. | The live token returned `api_domain: https://www.zohoapis.com.au`, which is not the Mail host, and **no `location` at all** (verified 2026-10-04: Zoho sends `location` only for API clients with multi-DC enabled). A design that required `location` would have failed every connect. |
+| D8 | **One Durable Object per Zoho account** (SQLite-backed, id = `accountId`) owns three things that need strong consistency: the token bucket (25 requests a minute), the single-flight access-token refresh, and the per-tool call budget (D17). Every Zoho call goes through its account's DO. | Zoho enforces 30 requests a minute per account with an undisclosed lock-out. Plain Workers are stateless across isolates, so a bucket in memory is not a bucket. SQLite DOs are available on the Workers Free plan (section 9). |
+| D9 | Default policy for a fresh install is decided by **where the data goes, never by thread history**: any send, reply or forward with a recipient outside the org domains and outside the owner's contact allowlist is `ask`; internal-only and allowlisted recipients are `allow`; `trash`, `spam`, `label.delete` and `+bulk` are `ask`; `+sensitive` with any external recipient is `ask` even when allowlisted; reads, drafts, labels, folders, flags and read marks are `allow`. The owner's "Allow everything" grant works exactly as in Gmail. | Round 2 showed the earlier "reply inside an existing thread is allowed" rule is a prompt-injection bypass: an attacker who emails the mailbox is already "in the thread". Thread membership is not trust. The allowlist (existing accounts page) is how the client makes a regular contact convenient. |
+| D10 | Approvals are delivered by MCP URL elicitation (Claude and Codex both open the link) with the approval page as fallback. No native notification. | The Gmail companion has no notification capability; adding one is native app work with no payoff over the elicitation the clients already support. |
+| D11 | The companion gains a launchd agent (start at login) and a version check shown on the settings page. It does not self-update. | Cheap, and "run the install line again" is the update path. |
+| D12 | **Drafts, non-destructive order.** `update_draft` saves the new draft first, confirms it exists, then moves the old one to Trash; if the cleanup fails the result carries `old_draft_cleanup: pending` and the new id. `send_draft` snapshots the draft, journals the send, sends, and moves the draft to Trash **only on a confirmed send**; a `delivery_unknown` leaves the draft in place. `forward` and `attach_from_message` are composed by the server: fetch the original, re-upload its attachments, send. `send_draft` fails closed with `draft_not_reconstructible` if a draft carries attachments the server cannot re-upload faithfully; it never sends a draft minus its attachments. | Zoho Mail's API has no update-draft, no send-draft-by-id and no forward action (reply allows only `action: Reply`). Round 2: delete-then-save turned a network failure into "move the user's draft to Trash". |
+| D13 | **The MCP never directly expunges or permanently deletes an email.** Every delete-like action moves mail to Zoho Trash or Spam with `moveMessage`, where Zoho's own retention continues to apply. The token has no `messages.DELETE` scope (D6), so Zoho's DELETE endpoint cannot be called at all. | Stronger than the Gmail guarantee, and now a property of the token rather than of our code. |
+| D14 | Attachment upload is one raw-body call per file to `messages/attachments`; no resumable path. Per-file ceiling 25 MiB. The per-message preflight ceiling is **32 MB of raw attachment bytes plus body**, a conservative figure under Zoho's 40 MB message limit, until the conformance probe establishes how Zoho measures the limit (MIME overhead is about 37% on base64 parts). | Zoho documents 40 MB per message (incoming, and outgoing when the admin sets it); the upload endpoint has no documented size limit. |
+| D15 | **No code signing, no notarisation, no native binary.** The companion is rewritten in plain JavaScript (Node 22.18 or later, the floor the Gmail companion already sets) and installed into `~/Library/Application Support/zoho-mail-mcp/` by the one-line installer, which downloads the tarball **once** to a temporary file, verifies that exact file's SHA-256 against `/companion.sha256`, and runs `npm install --prefix <app dir> <that file>`. If Node is missing, the installer downloads the official macOS `.pkg` from nodejs.org, checks `pkgutil --check-signature` names the Node.js Foundation certificate, then runs it. The Swift helper's duties move to Node: the staging credential goes into the login Keychain through the built-in `security` command; the save journal uses `node:sqlite`; file confinement uses `fs.realpath` on the parent plus `O_NOFOLLOW`, `O_CREAT`, `O_EXCL`, mode `0600`, and `fsync` through `fs.open`; attacker-controlled filenames are sanitised (no separators, no NUL, no leading dot, length cap) and never executed or opened. The one guarantee that weakens is the Swift helper's atomic parent-directory check across a rename race; the Node version re-checks the resolved parent after the write and refuses on mismatch, and the companion runbook says so. | Raouf, 2026-10-03: "avoid completely, it has to be fully easy for Muhsam and the agent". Round 2: verifying one download and installing another is a supply-chain hole; a global npm prefix fights the stated install directory. |
+| D16 | **No byte store in Cloudflare at all.** Upload: the companion streams the file to the Worker, the Worker streams it straight through to Zoho's `messages/attachments` while hashing, and D1 keeps only a **sealed handle** (account, `storeName`, `attachmentPath`, `attachmentName`, size, SHA-256, owner, expiry). Download: the companion asks the Worker for a handle, the Worker streams Zoho's attachment content straight back; nothing is buffered. Approval still binds to bytes: the approved payload carries the handle's SHA-256 and size, and the send names Zoho's upload result exactly. **Conformance probe item:** Zoho does not document how long an uploaded-but-unsent attachment survives; the probe measures it. If it is under 30 minutes, the fallback is chunked storage in the account's Durable Object (2 MB rows, SQLite, strongly consistent), not KV. | Round 2 (Cloudflare docs): KV is eventually consistent, propagation can exceed 60 seconds, negative lookups are cached, and even same-location read-after-write "is not guaranteed and therefore it is not advised to rely on this behaviour". A stage-then-consume protocol cannot sit on that. Streaming through also removes the Free plan's 25 MiB object from the CPU budget (D18). R2 remains unavailable (10042, re-checked live). |
+| D17 | **Server-enforced call budgets per tool call**, counted in the account's DO: at most 10 Zoho requests per tool invocation, at most 8 message bodies per `get_thread`, at most 10 attachments per `forward` or `attach_from_message`, at most 32 MB of attachment bytes per message. When a budget is hit the tool returns what it has plus a continuation cursor; it never silently truncates a send. | Zoho permits hundreds of attachments on an incoming message, so hostile mail can manufacture a 30-requests-a-minute lock-out through a single "forward this". The server owns the guardrail, not the model's manners. |
+| D18 | **Workers Free is the target plan but is gated, not assumed.** Gate G13 (section 8) runs the worst cases (25 MiB streamed upload with hashing, 25 MiB download, approval canonicalisation, OAuth validation, normal MCP calls) on Free and must show zero CPU-limit terminations. If it fails, the fallback is Workers Paid (USD 5 a month, owner approval and card) rather than weakening the hashing. | Free allows 10 ms CPU per request (section 9). Streaming pass-through keeps CPU low, but it is measured, not asserted. |
+
+## 2. The client's experience
+
+### 2.1 One-time setup (about 10 minutes)
+
+1. Open `https://mail-mcp.sarabisfinerugs.com.au`. Click **Sign in with Zoho**. This is the only login the system has.
+2. The welcome page shows two slots, **Sarabi's Fine Rugs (info@sarabisfinerugs.com.au)** and **Rug Cleaning Pro (info@rugcleaningpro.com.au)**, with a **Connect** button each and the Zoho user to sign in as. Connecting opens Zoho's consent screen for the scopes in D6. The client does this twice, signed in to Zoho as each user. A wrong user is refused with a plain sentence, nothing is stored.
+3. **Set up my Mac**: one line to paste into Terminal:
+
+   ```
+   curl -fsSL https://mail-mcp.sarabisfinerugs.com.au/install.sh | sh
+   ```
+
+   It installs the companion (D15), registers a launchd agent, runs the companion's one-time initialisation (Keychain credential, default folders), and configures Claude Code, Claude Desktop and Codex (section 7). It prints what it did and ends with "Open Claude or Codex and ask for your inbox".
+4. **Claude Desktop and claude.ai, remote half**: remote connectors cannot be written to a config file (Claude's docs: Settings, Connectors only). The setup page shows the one URL to paste into **Add custom connector** with a screenshot. Authentication choice: "Register automatically".
+5. The first tool call from each client opens the standard MCP authorisation page on the Worker, which is the same Zoho sign-in. One approve click per client.
+
+### 2.2 Daily use
+
+- Reading, searching, drafting, labelling, moving, flagging and replying to people inside the business or on the contact allowlist just work.
+- A send, reply or forward to anyone else returns an approval link that Claude or Codex opens. The client clicks Approve. The call then runs with exactly the payload they approved. Adding a regular customer to the allowlist (accounts page) stops the asking for that address.
+- The **policy page** (same as Gmail) lets the client set any action to allow, ask or deny, or click **Allow everything** once.
+- Attachments to disk land in `~/Downloads/Mail/`. Files to send go in `~/Downloads/Mail/To Send/`; staging from there is allowed without asking. Staging from `~/Desktop`, `~/Downloads` or `~/Documents` asks first, because the bytes leave the Mac at that moment. Both lists are editable on the settings page; changing them re-initialises the companion, which the page explains.
+- The settings page shows the companion version and, when the Worker ships a newer one, the same install line to run again.
+- **Reconnect**: when a Zoho refresh token stops working, the mailbox shows a Reconnect button and tools return `reconnect_required` with the page URL.
+
+### 2.3 What Raouf does (not the client)
+
+Create the Zoho API client (D5), mint the deploy token, deploy the Worker, D1 and the Durable Object into the client's Cloudflare account, set the secrets, run the gates, and hand over. Runbook in section 8. After the planned Zoho org move the client reconnects both mailboxes from the welcome page; nothing is redeployed.
+
+## 3. Architecture
+
+```
+Claude (Desktop, Code, claude.ai) and Codex (CLI, app)
+        |  MCP over Streamable HTTP, bearer scoped "mcp"
+        v
++--------------------------------------------------------------+
+| Cloudflare Worker (the authority)                            |
+|  Zoho tools . Policy engine . Confirmation engine            |
+|  Operation journal . Sealed attachment handles . Audit log   |
+|  OAuth provider (dynamic registration) . Web pages           |
+|  Owner login: Sign in with Zoho (OIDC)                       |
++------+---------------------+---------------------+-----------+
+       |                     |                     +-- KV  OAuth clients and grants only
+       |                     +-- Durable Object per account: rate bucket,
+       |                         refresh lock, call budget (SQLite)
+       +-- D1  owner, accounts, policy, approvals, operations,
+       |       sealed handles, audit
+       v
+  Zoho Mail REST API (mail.zoho.com.au) . Zoho Accounts (accounts.zoho.com.au)
+  Attachment bytes stream Worker <-> Zoho; nothing is stored in Cloudflare.
+
+Mac only (Claude Code, Claude Desktop, Codex)
+        |  stdio
+        v
++--------------------------------------------------------------+
+| Local companion (thin): save_attachment, stage_file,         |
+| list_roots . bearer scoped "staging" . launchd agent         |
+| plain JavaScript, no native helper (D15)                     |
++-----------------------------+--------------------------------+
+                              v
+            ~/Downloads/Mail, ~/Downloads/Mail/To Send,
+            ~/Desktop, ~/Downloads, ~/Documents (ask)
+```
+
+### 3.1 What is reused unchanged
+
+`shared/` (actions, modifiers, error codes, schemas; four actions and two modifiers added, section 6), `worker/src/{crypto,policy,approval,operations/journal,audit,cron,auth,mcp}`, the companion's TypeScript (`server.ts`, `transfers.ts`, `protocol.ts`, `auth.ts`, `cli.ts`), the test harness.
+
+Not reused as-is (gauntlet rounds 1 and 2):
+
+- **Migrations.** `0001_init.sql` has `google_sub`, `google_email`, `UNIQUE(user_id, google_sub)` and `gmail_result_id`; `0005_operation_recovery.sql` has `kind CHECK(kind IN ('gmail','refresh'))`. The new repo starts a fresh D1, so the five migrations are rewritten once as a squashed `0001_init.sql` with `zoho_sub`, `zoho_email`, `provider_result_id`, `kind IN ('zoho','refresh')`, a `slot` column with the expected address on accounts, and a `sealed_handles` table. No data migrates.
+- **`operations/reconcile.ts`** imports `google/recovery-http` and `google/resumable` and hard-codes Gmail URLs. It is rewritten against `zoho/recovery-http.ts` (section 5.5).
+- **`web/`**: `login.ts` names `OWNER_GOOGLE_SUBS`; `html.ts` sets a CSP `form-action` for `accounts.google.com`. Both become Zoho (`OWNER_ZOHO_SUBS`, `accounts.zoho.com.au`). Branding strings as well.
+- **`staging/`**: the R2 store is removed. The reserve, consume, release and purge state machine is kept and now manages sealed handles in D1 (D16); the byte path is a stream.
+- **`google/tokens.ts`** refresh logic moves into the account Durable Object (D8).
+- **`companion/native/`**: deleted. Its duties are reimplemented in `companion/src/native.ts` as in-process Node code (D15), keeping the `NativePort` interface so `server.ts` and `transfers.ts` do not change.
+
+### 3.2 The Zoho layer (`worker/src/zoho/`, replaces `worker/src/google/`)
+
+| Module | Responsibility |
+|---|---|
+| `oidc.ts` | Owner login. Discovery from `accounts.zoho.com.au/.well-known/openid-configuration`, PKCE S256, `state` and `nonce` one-use, `id_token` verified against the JWKS (`iss`, `aud`, `exp`, signature), `sub` is the owner key. |
+| `connect.ts` | Mailbox connect. Carries `slot`, `expected_primary_email`, owner session id, `state` and PKCE verifier through the flow. Authorization code with `access_type=offline`, `prompt=consent`, scopes per D6. On callback: exchange, read `location`, call `GET /api/accounts`, require exactly the expected primary address, else `account_mismatch`; store `accountId`, send-as list, encrypted refresh token. |
+| `account-do.ts` | The per-account Durable Object (D8): token bucket (25 a minute, refilled per second), `getAccessToken()` with a single-flight refresh and the 1 hour cache, `budget(toolCallId)` counters (D17), `reconnect_required` on `invalid_grant`. |
+| `client.ts` | One HTTP client: base URL from `location` (D7), `Authorization: Zoho-oauthtoken`, every call admitted by the account DO, retries only for idempotent GETs on 5xx with jitter. Error handling: `INVALID_OAUTHTOKEN` triggers one refresh through the DO and one safe retry (a 401 means the operation did not run), then `reconnect_required` on `invalid_grant`; `INVALID_OAUTHSCOPE` is `insufficient_scope` (a consent problem, not a token problem); `429` and lock-out are `rate_limited` with `retry_after`. Parses both documented and array-shaped error bodies (section 4). |
+| `mail.ts` | Typed wrappers for every endpoint in section 4 with the literal modes from the official pages. |
+| `attachments.ts` | Streaming upload from the companion to `POST messages/attachments?fileName=` with SHA-256 computed on the way; streaming download from `GET .../attachments/{id}` to the companion; sealed handle issue and verification (D16). |
+| `recovery-http.ts` | The probe the cron uses on a `delivery_unknown` send (section 5.5). |
+
+### 3.3 Identity model
+
+`owner` row keyed by Zoho `sub`. `account` rows keyed by Zoho `accountId`, each with `slot` (`sarabi` or `rcp`), `expected_primary_email`, `zoho_user_sub` (the user who consented), `primary_email`, `send_as` (JSON array), `location`, encrypted refresh token, `status in (connected, reconnect_required, disconnected)`. Every tool takes `account` as the slot name; `list_accounts` is authoritative.
+
+## 4. Zoho API facts the tools rely on
+
+All endpoints relative to `https://mail.zoho.com.au/api/accounts/{accountId}`. Literals below are copied from the saved official pages (round 2 corrected five of them).
+
+| Need | Endpoint | Notes |
+|---|---|---|
+| Accounts | `GET /api/accounts` | `accountId`, `emailAddress[]` (`isPrimary`, `isAlias`), `sendMailDetails[]` (`fromAddress`). |
+| List in folder | `GET /messages/view` | `folderId`, `start`, `limit` 1 to 200, `status`, `flagid` (integer filter 0 to 3 here), `labelid`, **`threadId`**, `sortBy`, `sortorder`, `includeto`, `includesent`, `includearchive`, `attachedMails`. |
+| Search | `GET /messages/search?searchKey=` | Syntax `param:value::param:value` with `entire`, `content`, `sender`, `to`, `cc`, `subject`, `fileName`, `fileContent`, `has:attachment`, folder, label, flag and date criteria; quotes for phrases. Flat results with `threadId` and `threadCount`. Provisional until probed. |
+| Message metadata, content, headers, MIME | `GET /folders/{folderId}/messages/{messageId}/{details, content, header}`, `GET /messages/{messageId}/originalmessage` | `folderId` is required on three of them, so every message reference the server stores carries its folder id. |
+| Attachments | `GET .../attachmentinfo`, `GET .../attachments/{attachmentId}` (stream) | One call per attachment. |
+| Upload | `POST /messages/attachments?fileName=` raw, or `?uploadType=multipart` | Returns `storeName`, `attachmentName`, `attachmentPath`, `attachmentSize`. Lifetime of an unsent upload undocumented (probe). |
+| Send | `POST /messages` | `fromAddress` must be one of the account's send-as addresses, `toAddress`, `ccAddress`, `bccAddress`, `subject`, `content`, `mailFormat` html or plaintext, `askReceipt`, `encoding`, `attachments[]` of upload results. Scheduling fields exist and are not exposed. No custom headers. |
+| Reply | `POST /messages/{messageId}` with `action: "Reply"` | Same body as send. Zoho sets the threading headers. No forward action. |
+| Save draft | `POST /messages` with `mode: "draft"` | Plus `inReplyTo` and `refHeader` (RFC Message-IDs, from the header endpoint) for reply drafts. No `attachments` field documented; whether Zoho accepts one is a probe item. No update or send-by-id. |
+| Message updates | `PUT /updatemessage` | `mode` literals: `markAsRead`, `markAsUnread`, `moveMessage` (`destfolderId`), **`setFlag`** (`flagid` string: `info`, `important`, `followup`, `flag_not_set`), `applyLabel` and `removeLabel` (`labelId[]`), `removeAllLabels`, **`archiveMails`**, **`unArchiveMails`**, **`moveToSpam`**, **`markNotSpam`**; `messageId[]` or `threadId[]`; `isFolderSpecific` plus `folderId` optional. |
+| Thread updates | `PUT /updatethread` | Same mode family on `threadId[]`. |
+| Folders | `GET /folders[/{folderId}]` | Read only in this design. System folders are identified by name in the folder list; the server resolves and caches their ids per account for 10 minutes. **Archive is not a folder on older accounts:** Zoho is phasing in a single Archive folder; existing accounts keep an "archived" state inside the original folder. The tools use `archiveMails` and `unArchiveMails` and never move to an Archive folder. |
+| Labels | `GET`, `POST`, `PUT`, `DELETE /labels[/{labelId}]` | Name and colour. |
+
+Limits: 30 API requests per minute per account (lock-out undisclosed); 40 MB per message; 150 external recipients per message on a paid org; sending rate 50 to 500 an hour, dynamic.
+
+Token endpoint error shape, verified live 2026-10-04: HTTP 200 with `{"error": "invalid_code"}` or `{"error": "invalid_client_secret"}`; `location` absent for a single-DC API client.
+
+Mail API error shape, verified live: an authorisation failure is HTTP 401 with the body `[2, {"msg": "Error while processing!", "errorCode": "INVALID_OAUTHSCOPE", "authFail": "true", "status": "401"}]`, a JSON array, not the documented `{status: {code, description}}` object. `client.ts` parses both.
+
+## 5. Tools
+
+Names stay the same as Gmail wherever the meaning is the same. All tools take `account` (the slot). Read tools are `allow` by default. Every tool runs under the D17 budget.
+
+### 5.1 Accounts and control (unchanged)
+
+`list_accounts`, `get_policy`, `open_policy_editor`, `list_pending`, `execute_pending`, `cancel_pending`, `connect_account` (returns the welcome page URL).
+
+### 5.2 Reading
+
+| Tool | Zoho calls | Notes |
+|---|---|---|
+| `search_messages` | 1 | Arguments: `query` (Zoho syntax, documented in the tool description), `folder`, `start`, `limit`, `include_to`. Returns flat messages with `thread_id`. |
+| `search_threads` | 1 | Groups the search page by `thread_id`, one row per thread with the newest message. |
+| `get_thread` | 1 list with `threadId`, plus up to 8 bodies when `format: full` | Default `format: metadata` costs one call; bodies beyond 8 come through a cursor. |
+| `get_message` | 1 to 3 | `metadata`, `full` (content), `headers`, `raw` (original MIME). |
+| `list_drafts`, `get_draft` | 1 list in Drafts, 1 content | |
+| `list_labels`, `list_folders` | 1 each | |
+| `download_attachment` | 1 info (cached per message) + 1 stream | Returns a sealed handle; the companion turns it into a file. From claude.ai, returns a one-time link instead. |
+
+### 5.3 Composing
+
+| Tool | Behaviour | Default policy |
+|---|---|---|
+| `create_draft` | Save draft. Reply drafts take `in_reply_to_message` and the server fetches the Message-IDs for `inReplyTo` and `refHeader`. `attachments` is accepted only if the conformance probe shows Zoho stores them on a draft; otherwise refused with `draft_attachments_unsupported`. | allow |
+| `update_draft` | Save new, verify, trash old (D12). Returns the new `draft_id` and `old_draft_cleanup`. | allow |
+| `send_draft` | Snapshot, journal, send, trash on confirmed send only (D12). Fails closed on attachments it cannot reconstruct. Policy is evaluated as a send on the **snapshot's** recipients. | as send |
+| `send_message` | Upload from sealed handles, `POST /messages`. `from` defaults to the account's primary address and must be in its send-as list. | ask when any recipient is external and not allowlisted |
+| `reply` | `POST /messages/{id}` with `action: Reply`. **`reply_all` recipients are reconstructed by the server**: `Reply-To` if present else `From`, plus original `To` and `Cc`, minus every own and send-as address, de-duplicated, never `Bcc`. Policy runs on the **final reconstructed list**, not on what the model asked for. | same rule as send; thread history grants nothing |
+| `forward` | Fetch original content and up to 10 attachments, re-upload, send with the quoted original. | ask |
+| `attach_from_message` (argument on send and reply) | Same re-upload path, same cap. | inherits |
+
+Modifiers: `+attachment`, `+external`, `+bulk` (more than 10 recipients), `+sensitive`, `+destructive` (new, on label delete), `+outside_outbox` (new, on staging).
+
+### 5.4 Organising
+
+| Tool | Zoho mode | Default policy |
+|---|---|---|
+| `label_message`, `unlabel_message`, `label_thread`, `unlabel_thread`, `update_message_labels` | `applyLabel`, `removeLabel`, `removeAllLabels` | allow |
+| `apply_sensitive_message_label`, `apply_sensitive_thread_label` | `applyLabel` on the configured label | allow |
+| `create_label`, `update_label`, `delete_label` | labels CRUD | allow, allow, ask |
+| `move_message`, `move_thread` (new) | `moveMessage` | allow |
+| `archive_message`, `archive_thread`, `unarchive_*` (new) | `archiveMails`, `unArchiveMails` | allow |
+| `flag_message` (new) | `setFlag` with `info`, `important`, `followup`, `flag_not_set` | allow |
+| `mark_read`, `mark_unread` (new, message or thread) | `markAsRead`, `markAsUnread` | allow |
+| `trash_message`, `trash_thread` | `moveMessage` to Trash | ask |
+| `untrash_message`, `untrash_thread` | `moveMessage` to the folder recorded at trash time, else Inbox | allow |
+| `mark_message_spam`, `mark_thread_spam` | `moveToSpam` | ask |
+| `unmark_message_spam`, `unmark_thread_spam` | `markNotSpam` | allow |
+
+Every Gmail tool has a Zoho counterpart.
+
+### 5.5 Operation journal and `delivery_unknown`
+
+Sends, replies, forwards and `send_draft` are journalled before the Zoho call with an idempotency key, exactly as in Gmail. If the Zoho response is lost, the operation becomes `delivery_unknown`.
+
+Recovery is **positive-only**. The cron probe searches the Sent folder inside the operation's window and compares every field Zoho exposes against the journalled, approved payload: account, from, the full to, cc and bcc sets, subject, sent time inside the window, attachment count, names and sizes, and the body hash when the content endpoint returns the body. **Exactly one candidate matching on every available field settles the operation as `sent`.** Zero candidates, several candidates, a search error or a partial match all leave it `delivery_unknown`. Absence from search is never evidence of non-delivery: indexing lags, mail moves, lookups fail. A `delivery_unknown` operation is never retried automatically and never auto-expires into `not_sent`; the owner closes it from the operations page after looking in the mailbox.
+
+## 6. Policy defaults (D9)
+
+Action names are the Gmail registry in `shared/src/actions.ts`, verified by grep, plus the additions marked (new).
+
+| Action | Default |
+|---|---|
+| `read.search`, `read.message`, `read.attachment`, `draft.write`, `label.apply`, `label.manage` (create and update), `folder.move` (new), `flag.set` (new), `read.mark` (new), `archive.set` (new), `trash.restore`, `spam.unmark`, `fs.save`, `account.read`, `policy.read` | allow |
+| `attachment.stage_upload` from `~/Downloads/Mail/To Send` | allow |
+| `attachment.stage_upload` from any other configured root (modifier `+outside_outbox`) | ask |
+| `send.message` (covers `send_message`, `reply` and `send_draft`), `send.draft` with every recipient internal or allowlisted | allow |
+| `send.message`, `send.draft` with any external, non-allowlisted recipient (`+external`) | ask |
+| `send.*` with `+sensitive` and any external recipient, allowlisted or not | ask |
+| `send.forward`, `trash.move`, `spam.mark`, `label.manage` with `+destructive`, any `send.*` with `+bulk` | ask |
+| `account.connect`, `policy.edit` | browser only |
+
+"External" uses the existing `TrustContext` in `policy/recipients.ts`: a recipient is external unless it is one of the account's own addresses, matches the owner's contact allowlist (the existing accounts page edits it), or is on an org domain. Org domains for this deployment: `sarabisfinerugs.com.au`, `sarabisfinerugs.com`, `rugcleaningpro.com.au`. The owner's saved level is final; "Allow everything" is one grant. Modifiers raise a default `allow` to `ask`, never a saved one.
+
+## 7. Installer and client configuration
+
+`GET /install.sh` is served by the Worker (static, versioned). It:
+
+1. Checks for Node 22.18 or later; if absent, downloads the official macOS `.pkg` from nodejs.org to a temporary file, verifies `pkgutil --check-signature` names Node.js Foundation, and runs it.
+2. Downloads `/companion.tgz` **once** to a temporary file, verifies that file's SHA-256 against `/companion.sha256`, and installs it with `npm install --prefix "$HOME/Library/Application Support/zoho-mail-mcp" <that file>`. No binary of ours is downloaded and nothing needs signing (D15).
+3. Runs `companion init --server https://mail-mcp.sarabisfinerugs.com.au`, which opens the browser for the owner to grant the staging credential (existing flow), creates `~/Downloads/Mail` and `~/Downloads/Mail/To Send`, and sets the default roots: write `~/Downloads/Mail`, read `~/Downloads/Mail/To Send` (outbox), read `~/Desktop`, `~/Downloads`, `~/Documents` (ask).
+4. Writes a launchd agent `au.com.sarabisfinerugs.mail-mcp.companion.plist` (RunAtLoad).
+5. Claude Code, through the CLI with the explicit user scope (the default is project-local):
+
+   ```
+   claude mcp add --scope user --transport http zoho-mail https://mail-mcp.sarabisfinerugs.com.au/mcp
+   claude mcp add --scope user zoho-mail-companion -- "<app dir>/bin/companion" serve
+   ```
+
+6. Codex, through its CLI (configuration is shared by the CLI and the IDE extension):
+
+   ```
+   codex mcp add zoho-mail --url https://mail-mcp.sarabisfinerugs.com.au/mcp
+   codex mcp add zoho-mail-companion -- "<app dir>/bin/companion" serve
+   ```
+
+   and prints `codex mcp login zoho-mail` as the one command to run next (Codex 0.160.0 has it; dynamic client registration is what the Worker implements).
+7. Claude Desktop, local half: adds `zoho-mail-companion` to `~/Library/Application Support/Claude/claude_desktop_config.json` **atomically** (read, parse, merge the one key, write to a temp file, rename), leaving every other entry untouched; a backup of the previous file is kept beside it. Claude's connector documentation names this file as the mechanism for local servers; if a future Desktop release drops it, the fallback is packaging the same companion as a Desktop Extension (`.mcpb`), which the help centre documents today.
+8. Is idempotent: re-running updates the companion and leaves configuration alone.
+
+The remote half for Claude Desktop and claude.ai is the one URL paste in Settings, Connectors (section 2.1).
+
+## 8. Deployment, gates and handover (Raouf)
+
+1. Client's Zoho API console (AU): Server-based Application `Sarabi Mail MCP`, homepage `https://mail-mcp.sarabisfinerugs.com.au`, both redirect URIs from D5. Record client id and secret in `.env` as `ZOHO_MCP_CLIENT_ID`, `ZOHO_MCP_CLIENT_SECRET` (mode 600, never committed).
+2. Client's Cloudflare account (`<client-cf-account-id>`, which already holds the zone; verified by API): mint a deploy token from `CLOUDFLARE_API_TOKEN` with Workers Scripts Edit, D1 Edit, Workers KV Storage Edit, Durable Objects Edit, Workers Routes Edit and DNS Edit on the zone; store it as `ZOHO_MCP_CF_TOKEN` in `.env`. Create D1 `zoho-mail-mcp` and one KV namespace (`OAUTH`, the provider's client and grant store only). Custom domain `mail-mcp.sarabisfinerugs.com.au`. No R2 (re-checked live 2026-10-03: still 10042).
+3. `wrangler deploy` with `wrangler.prod.jsonc`, migrations applied, secrets set (`ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET`, `KEYRING`, `SESSION_SECRET`, `OWNER_ZOHO_SUBS` = the Zoho `sub` values allowed to become owner, the same mechanism as Gmail's `OWNER_GOOGLE_SUBS`).
+4. **Task 0, the conformance probe**, run with the client's API client and a READ-scoped token before any tool code is written, recorded in the plan: search syntax on real mail; `threadId` filtering; header response shape for `inReplyTo` and `refHeader`; folder list fields and whether this account has an Archive folder or the archived state; `archiveMails` behaviour; draft save with and without `attachments`; whether a draft moves to Trash with `moveMessage`; upload-store lifetime of an unsent attachment (D16); how Zoho measures the 40 MB limit (D14); rate-limit headers and the 429 shape; the `INVALID_OAUTHTOKEN` body. Every result is written into section 4 with the date.
+5. Gates before handover:
+   - **G13 Workers Free CPU**: worst cases (25 MiB streamed upload with hashing, 25 MiB download, approval canonicalisation of a 50-recipient payload, OAuth validation, 200 normal MCP calls) with zero CPU-limit terminations in the Workers logs. Fail: Workers Paid with owner approval (D18).
+   - **G14 MCP OAuth 2026 conformance**: `/.well-known/oauth-protected-resource` served, authorization-server metadata served, `resource` echoed from authorize to token and validated (`invalid_target` otherwise, which the Gmail provider already does), S256 PKCE enforced, dynamic client registration works, `WWW-Authenticate` challenge with `resource_metadata` on 401, issuer mix-up protection, and expired, wrong-audience and tampered tokens rejected. Run against Codex and Claude Code as real clients.
+   - **G15 account misbinding**: connecting slot `rcp` while signed in as the Sarabi Zoho user is refused with `account_mismatch` and stores nothing.
+   - **G16 policy**: a reply to an external sender in an existing thread asks; the same reply after the sender is allowlisted is allowed; `reply_all` on a message with a `Reply-To` and own addresses in Cc reconstructs the documented list and policy runs on it.
+   - **G17 drafts**: `update_draft` with the save step failing leaves the old draft untouched; `send_draft` with a lost response leaves the draft in place and the operation `delivery_unknown`.
+   - **G18 recovery**: two Sent candidates with the same recipient and subject stay `delivery_unknown`; one exact match settles `sent`; zero stays `delivery_unknown`.
+   - **G19 budget**: a thread of 40 messages returns 8 bodies and a cursor; a forward of a message with 100 attachments is refused before any upload.
+   - **G20 installer**: the tarball used for `npm install` is byte-identical to the one hashed (single download path); re-running changes no configuration; the Desktop config merge preserves unrelated entries.
+   - **Live round**: owner login, both mailboxes connected, one read, one gated external send approved and received, one attachment round trip to disk from Claude Code, Codex and Claude Desktop, one `delivery_unknown` recovery test with the probe.
+6. Handover note for the client: the welcome URL, the install line, the Claude Desktop paste, who to call.
+
+After the Zoho org move (`2026-09-28-zoho-org-move.md`): the mailboxes change Zoho users, so the client clicks Connect again for each. The API client stays valid because it is bound to the AU data centre, not to the org, but its owner should be the client's Zoho admin account so it survives any staff change.
+
+## 9. Facts verified on 2026-10-03
+
+- Zoho AU OIDC discovery (fetched live): issuer `https://accounts.zoho.com.au`, auth `/oauth/v2/auth`, token `/oauth/v2/token`, userinfo `/oauth/v2/userinfo`, JWKS `/oauth/v2/keys` (two RS256 keys), scopes `email profile openid phone`, PKCE `S256`, claims include `sub`, `email`, `email_verified`, `aud`, `iss`, `exp`; token endpoint auth `client_secret_post` and `client_secret_basic`.
+- Zoho AU authorisation endpoint with `openid,email,ZohoMail.*` scopes, `access_type=offline`, `prompt=consent`: HTTP 302 to the sign-in page, no error.
+- Live refresh of the store plugin's token on `accounts.zoho.com.au`: HTTP 200, keys `access_token, api_domain, expires_in, scope, token_type` and **no `location`**; `api_domain: https://www.zohoapis.com.au`; scope echoed as `VirtualOffice.messages.CREATE VirtualOffice.accounts.READ`. Token-endpoint failures are **HTTP 200 with a body of `{"error": "invalid_code"}`** (dead or unknown refresh token, bogus authorization code) or `{"error": "invalid_client_secret"}` (2026-10-04); the client must read the body, not the status. `GET https://mail.zoho.com.au/api/accounts` lists one account, `191312000000002002`, primary `info@sarabisfinerugs.com.au`, send-as both addresses. Every read endpoint with that token: HTTP 401 `INVALID_OAUTHSCOPE` in a JSON-array body.
+- Zoho Mail API base URL table: `mail.zoho.com.au` for Australia. Scopes documented per endpoint with `READ`, `CREATE`, `UPDATE`, `DELETE`, `ALL`; `moveMessage` is under `messages.UPDATE`; delete is under `messages.DELETE`.
+- Mode literals from the official pages: `setFlag` (`flagid` strings `info`, `important`, `followup`, `flag_not_set`), `moveToSpam`, `markNotSpam`, `archiveMails`, `unArchiveMails`, `applyLabel`, `removeLabel`, `moveMessage`, `markAsRead`, `markAsUnread`.
+- Zoho archive help page: "When you Archive an email, the email remains in the same folder but gets removed from the listing of emails" and "A new single folder archival process is being gradually phased in for all new users."
+- Rates and limits page: 30 API requests per minute, lock-out not disclosed, 40 MB per message, 150 external recipients per message (paid), 50 to 500 sends an hour.
+- Cloudflare KV (`developers.cloudflare.com/kv/concepts/how-kv-works/`): eventually consistent, "may take up to 60 seconds or more" elsewhere, negative lookups cached, and at the writing location "this is not guaranteed and therefore it is not advised to rely on this behaviour".
+- Cloudflare Workers limits: Free 10 ms CPU per request, Paid 30 s default up to 5 min; request body 100 MB on Free.
+- Cloudflare Durable Objects limits: on the Free plan "only Durable Objects with SQLite storage backend are available"; SQLite row or value limit 2 MB; 5 GB total on Free.
+- Codex 0.160.0 on this Mac: `codex mcp add <name> --url <URL>`, `codex mcp add <name> -- <command>`, `codex mcp login <name>`. Codex docs: OAuth with dynamic client registration and CIMD; configuration shared by CLI and IDE extension.
+- Claude Code on this Mac: `claude mcp add --transport http`, `--scope` default `local`.
+- Claude docs (custom connectors article): remote connectors are added in Settings, Connectors, not in `claude_desktop_config.json`, which is "a separate mechanism" for local servers; dynamic registration supported; available on Free (one connector), Pro, Max, Team and Enterprise. Local MCP help centre article: Desktop Extensions (`.mcpb`) installed from Settings, Extensions.
+- Gmail repo: Google-specific code is confined to `worker/src/google` (1,543 lines), `operations/reconcile.ts`, `web/login.ts`, `web/html.ts` and the migrations; `auth/principal.ts` already emits `resource_metadata` in the 401 challenge and `auth/authorize.ts` rejects a wrong `resource` with `invalid_target`; `google/tokens.ts` refreshes through D1 rows; the companion has no notification, self-update, signing or release code; the Gmail default for `attachment.stage_upload` is `ask`.
+- Cloudflare account `<client-cf-account-id>` ("Info@sarabisfinerugs.com.au's Account", Free) holds the zone; R2 bucket list returns 10042 with every token; `CLOUDFLARE_API_TOKEN` is the recorded minting token (AGENT.md, 2026-09-16).
+
+## 10. Risks
+
+| Risk | Mitigation |
+|---|---|
+| Zoho lock-out from burst traffic | DO token bucket at 25 a minute per account; D17 budgets; `get_thread` defaults to metadata. |
+| Zoho upload store expires before the send | Probe measures it; fallback is DO-chunked storage (D16). Handles carry an expiry and the send refuses an expired handle. |
+| Zoho refresh token revoked by a password change or the org move | `reconnect_required`, Reconnect button, tools say which mailbox. |
+| Draft ids change on update | Documented in the tool result; the model must use the returned id. |
+| Hostile mail with hundreds of attachments | D17 caps forward and attach-from-message at 10; refused before any upload. |
+| Client loses the Mac or reinstalls | Re-run the install line; the staging credential is re-granted from the browser. |
+| Node companion weaker than the Swift helper on one filesystem race | Documented in D15; the post-write parent re-check refuses on mismatch; existing files are never overwritten. |
+| Workers Free CPU limit | G13 measures; Paid is the fallback. |
+| Codex OAuth behaviour differs from the docs | G14 runs with Codex as a real client before handover. |
+| claude.ai user expects disk transfer | Section 0 table; the download tool returns a one-time link there. |
+
+## 11. Out of scope for the first release
+
+Calendar and contacts, Zoho Streams, group mailboxes, scheduled sends, read receipts, inline images in composed mail (inline attachments are read but not authored), folder creation, Windows.
+
+## 12. Gauntlet round 1 (2026-10-03, executed, not re-read)
+
+| # | Check | Result | Change |
+|---|---|---|---|
+| G1 | `grep` the five D1 migrations for Google-specific schema | `google_sub`, `google_email`, `gmail_result_id`, `kind IN ('gmail','refresh')` found | Section 3.1: migrations squashed and rewritten, reconcile and web files listed as rewritten. |
+| G2 | Compare section 6 action names with `shared/src/actions.ts` | Nine of my names did not exist in the registry | Section 6 rewritten on the real registry plus new actions. |
+| G3 | `policy/recipients.ts`: how "external" is decided | `TrustContext {selfAddresses, allowlist, orgDomains}` | Section 6 states the org domains. |
+| G4 | Owner gating secret and CSP in `web/` | `OWNER_GOOGLE_SUBS`, `form-action accounts.google.com` | Section 8 secret renamed; section 3.1 lists the CSP edit. |
+| G5 | Companion release and signing | Built from source; no signing or notarisation anywhere in the repo | D15. The "notarised binary" wording was withdrawn. |
+| G6 | Staging ceiling | 25 MiB per file in `limits.ts` and `shared/staging.ts` | D14 consistent. |
+| G7 | Zoho AU authorisation endpoint with the full scope set, `access_type=offline`, `prompt=consent` | HTTP 302 to the Zoho sign-in page, no error | D6 notes the comma separator. |
+| G8 | Zoho AU JWKS and discovery | Two RS256 keys; claims include `sub`, `email`, `email_verified`; `client_secret_post` supported | D2 stands. |
+| G9 | Live Zoho reads with the store plugin token | All HTTP 401 `INVALID_OAUTHSCOPE`: the token has `messages.CREATE` and `accounts.READ` only | **Not run.** Reads are provisional until Task 0. Error body shape recorded in section 4. |
+| G10 | `claude mcp add --transport http` and `codex mcp login` on this Mac | Both exist (Codex 0.160.0) | Section 7 stands. |
+| G11 | Cloudflare: which account holds the zone, and can our token reach Workers there | Client's own account (Free plan); the stored token lists Workers scripts | D4 stands. R2 still 10042. |
+| G12 | Rate-limit headers on Zoho responses | None observed on the 401s | Unknown until Task 0; the bucket does not depend on headers. |
+
+## 13. Gauntlet round 2 (2026-10-03, external review verified claim by claim)
+
+An external review of revision 1 raised 20 findings. Each was checked against the artefacts before anything changed. Split: 15 adopted, 4 refined, 1 adopted as a gate rather than a design change.
+
+| # | Review claim | Verification | Outcome |
+|---|---|---|---|
+| R1 | KV is eventually consistent and unfit for stage-then-consume | Cloudflare KV concepts page quoted in section 9: not even same-location read-after-write is guaranteed | **Adopted.** D16 rewritten: no byte store in Cloudflare, stream Worker to Zoho and back, sealed handles in D1, DO-chunk fallback if Zoho's upload store is short-lived. |
+| R2 | "Reply inside an existing thread is allowed" is an approval bypass | Reasoning check: the attacker is in the thread by construction | **Adopted.** D9 and section 6 now gate on destination only. |
+| R3 | Zero Sent results must not settle `not_sent` | Reasoning check; Zoho search lag undocumented either way | **Adopted.** Section 5.5 is positive-only. |
+| R4 | Five Zoho literals wrong (`setFlag`, string flag ids, `moveToSpam`, `markNotSpam`, `archiveMails`, `unArchiveMails`) | Extracted from the saved official pages (`set-flag-for-email`, `mark-emails-as-spam-api`, `mark-emails-as-not-spam-api`, `put-archive-email`, `put-unarchive-email`) | **Adopted.** Section 4 and 5.4 corrected. |
+| R5 | claude.ai cannot reach the local companion; Claude Desktop needs its own local entry; `.mcpb` is the route | Claude docs: remote connectors run in Anthropic's cloud; the connectors article still names `claude_desktop_config.json` as the local mechanism; the local-MCP article documents `.mcpb` | **Refined.** Section 0 table states what each client gets; the installer writes the Desktop config file atomically; `.mcpb` is the documented fallback, not a requirement. |
+| R6 | `update_draft` is destructively ordered | Reasoning check | **Adopted.** D12 rewritten, `send_draft` never trashes after `delivery_unknown`. |
+| R7 | Workers Free 10 ms CPU is unproven for this workload | Cloudflare limits page quoted | **Adopted as a gate** (G13, D18) with Paid as the fallback. Streaming (D16) removes the largest CPU cost. |
+| R8 | Scopes broader than necessary; drop `messages.DELETE` | `move-email` page: `moveMessage` under `messages.UPDATE`; `delete-email` page: `messages.DELETE` | **Adopted.** D6 and D13. |
+| R9 | Token bucket and refresh need cross-isolate coordination; Gmail's refresh is "merely a JavaScript Promise map" | DO limits page: SQLite DOs on Free; `google/tokens.ts` refreshes through D1 rows, not a promise map | **Adopted, claim corrected.** D8 moves bucket, refresh and budget into one DO per account. |
+| R10 | Installer verifies one download and installs another; global npm prefix | Reasoning check; `npm install --prefix` exists | **Adopted.** D15, section 7. |
+| R11 | `stage_file` from Documents is exfiltration before approval | Gmail default for `attachment.stage_upload` is `ask` (grep) | **Adopted.** Outbox folder allowed, other roots ask. |
+| R12 | MCP OAuth 2026 requirements need explicit invariants | `auth/principal.ts` emits `resource_metadata`; `auth/authorize.ts` rejects wrong `resource` with `invalid_target` | **Refined.** The provider already does most of it; G14 proves the full list against Codex and Claude Code. |
+| R13 | Connect must bind the expected mailbox; OIDC must validate `state`, `nonce`, `iss`, `aud`, `exp`, `sub` | Reasoning check; Zoho OIDC page names `sub` as the stable id | **Adopted.** D2, D3, section 3.2, G15. |
+| R14 | `INVALID_OAUTHTOKEN` and `INVALID_OAUTHSCOPE` conflated | Reasoning check | **Adopted.** Section 3.2 `client.ts`. |
+| R15 | No hard API-call budget per tool | Zoho allows 500 attachments per message (limits page) | **Adopted.** D17, G19. |
+| R16 | Draft attachments "unsupported" overstated | Save-draft page documents no `attachments` field; Zoho's product supports draft attachments | **Adopted.** Probe item; `send_draft` fails closed. |
+| R17 | Archive is not a folder on older accounts | Zoho archive page quoted in section 9 | **Adopted.** Section 4 folders row; archive tools use the modes. |
+| R18 | "Nothing permanently deletes" needs precision | `delete-email` page: `expunge=false` moves to Trash | **Adopted.** D13 reworded and strengthened by D6. |
+| R19 | 40 MB needs MIME-aware handling | Reasoning check | **Adopted.** D14 preflight ceiling 32 MB pending the probe. |
+| R20 | `reply_all` semantics; installer should use the CLIs with user scope | `codex mcp add --url` and `claude mcp add --scope` verified on this Mac; Claude default scope is `local` | **Adopted.** Section 5.3 and 7. |
+
+Not changed by round 2: the fork decision (D1), Sign in with Zoho (D2), the client-owned deployment (D4, D5), elicitation-based approvals (D10), the launchd companion (D11), no signing (D15).

@@ -1,0 +1,156 @@
+# Zoho Mail MCP Implementation Plan (master)
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** Deliver a client-owned Zoho Mail MCP (Cloudflare Worker authority plus a plain-JavaScript macOS companion) with full tool parity to Raouf's Gmail MCP, installed by the client with one sign-in, one page and one pasted line.
+
+**Architecture:** Fork `~/Desktop/Raouf/gmail` into a new repository `zoho-mail-mcp`. Keep the provider-neutral core (policy, approvals, journal, OAuth provider, web, companion orchestration, test harness). Replace `worker/src/google` with `worker/src/zoho` (OIDC login, slot-bound connect, one SQLite Durable Object per account for rate bucket, refresh lock and call budgets, a client that routes on `location`), rewrite the tool layer for Zoho's folders, labels, threads and flags, remove the R2 byte store in favour of streaming to Zoho with sealed handles in D1, and rewrite the companion's native helper in Node so nothing is signed or compiled on the client's Mac.
+
+**Tech Stack:** TypeScript 5.9, Node 22.18+ (companion), Cloudflare Workers (`wrangler` 4.135, `@cloudflare/workers-oauth-provider` 0.10.3, `agents` 0.24.0, `@modelcontextprotocol/server` 2.0.0, `jose` 6.2.12, `zod` 4.6.5), D1, KV (OAuth store only), Durable Objects (SQLite), Vitest 4 with `@cloudflare/vitest-plugin`.
+
+**Spec:** `docs/superpowers/specs/2026-10-03-zoho-mail-mcp-design.md` (revision 2, sections 12 and 13 hold the two gauntlet rounds). The plan argues from the spec; executors read both.
+
+**Milestones (one file each, in this directory):**
+
+| File | Milestone | Tasks | Produces |
+|---|---|---|---|
+| `2026-10-03-zoho-mail-mcp-m0-bootstrap-and-probe.md` | M0 Repository, schema, env, fake Zoho, Task 0 conformance probe | 7 | A repo that builds, a squashed D1 schema, `Deps.zohoFetch`, `FakeZoho` harness, probe results written into spec section 4 |
+| `2026-10-03-zoho-mail-mcp-m1-identity-and-account-do.md` | M1 Sign in with Zoho, slot-bound connect, account Durable Object, Zoho client | 6 | Owner login, two connected slots, `zohoJson` with bucket, refresh and error mapping |
+| `2026-10-03-zoho-mail-mcp-m2-read-tools.md` | M2 Message view model, folders, labels, read tools | 5 | `search_messages`, `search_threads`, `get_thread`, `get_message`, `list_drafts`, `get_draft`, `list_labels`, `list_folders` |
+| `2026-10-03-zoho-mail-mcp-m3-compose-and-recovery.md` | M3 Policy additions, send, reply, forward, drafts, journal, positive-only recovery | 7 | `send_message`, `reply`, `forward`, `create_draft`, `update_draft`, `send_draft`, `delivery_unknown` probe |
+| `2026-10-03-zoho-mail-mcp-m4-organise-tools.md` | M4 Labels, move, flag, archive, read marks, trash, spam | 4 | The 20 organising tools |
+| `2026-10-03-zoho-mail-mcp-m5-attachments-streaming.md` | M5 Sealed handles, streaming upload to Zoho, streaming download, one-time links | 5 | `download_attachment`, staging routes, `attach_from_message`, budgets |
+| `2026-10-03-zoho-mail-mcp-m6-companion-and-installer.md` | M6 Node native port, launchd, tarball, install.sh, client config writers | 8 | A companion the client installs with one line |
+| `2026-10-03-zoho-mail-mcp-m7-deploy-and-gates.md` | M7 Token minting, provisioning, deploy, gates G13 to G20, live round, handover | 6 | A running service in the client's account with evidence |
+
+Execute in order. M2, M4 and M5 depend on M1's `zohoJson` and M0's `FakeZoho`; M3 depends on M2's view model; M6 depends only on M0 (the companion protocol is unchanged) and can run in parallel with M2 to M5; M7 depends on everything.
+
+## Global Constraints
+
+Copied from the spec. Every task's requirements include this section.
+
+- Node `>=22.18.0` for the companion and the workspace (`package.json` `engines`); no native code, no Swift, no code signing, no notarisation (D15).
+- TypeScript `strict`, `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes` (inherited `tsconfig.base.json`). `npm run verify` (format, lint, typecheck, test) is the gate for every task; exit code 0 is the claim.
+- Zoho AU only: OAuth on `https://accounts.zoho.com.au`, mail on `https://mail.zoho.com.au/api`. Route on the token response's `location`, never `api_domain` (D7).
+- Scopes, comma-separated, exactly: `openid,email,ZohoMail.messages.READ,ZohoMail.messages.CREATE,ZohoMail.messages.UPDATE,ZohoMail.folders.READ,ZohoMail.tags.ALL,ZohoMail.accounts.READ`. No `messages.DELETE`, no folder writes (D6). Scope checks accept the `VirtualOffice.*` spelling Zoho echoes.
+- Zoho mode literals: `markAsRead`, `markAsUnread`, `moveMessage`, `setFlag` (flag ids `info`, `important`, `followup`, `flag_not_set`), `applyLabel`, `removeLabel`, `removeAllLabels`, `archiveMails`, `unArchiveMails`, `moveToSpam`, `markNotSpam` (spec section 4).
+- Per-account token bucket 25 requests a minute; per tool call at most 10 Zoho requests, 8 thread bodies, 10 forwarded attachments, 32 MB attachment bytes per message (D8, D17).
+- Per-file staging ceiling 25 MiB (`STAGING_LIMITS.fileBytes`, unchanged). No byte store in Cloudflare (D16).
+- Policy decides on destination, never thread history (D9). Defaults in `shared/src/actions.ts` as section 6 of the spec lists them.
+- Drafts: save new first; trash old only after the new one exists; never trash after `delivery_unknown` (D12). Recovery is positive-only (section 5.5).
+- Nothing expunges: every delete-like action is `moveMessage` to Trash (D13).
+- Secrets live only in Worker secrets and `.env` (mode 600). Never printed, never committed.
+- No em dashes in any client-facing copy (web pages, install output, tool descriptions). Assert zero with `LC_ALL=C grep -c $'\xe2\x80\x94'` (the UTF-8 bytes of the em dash, so the check itself carries none).
+- The companion's `NativePort` interface (`call(command, body?) => Promise<{meta, body}>`, `close()`) is frozen; `server.ts`, `transfers.ts`, `auth.ts`, `http.ts` are reused unchanged.
+- Worker hostname for the client: `mail-mcp.sarabisfinerugs.com.au`. Slots: `sarabi` = `info@sarabisfinerugs.com.au`, `rcp` = `info@rugcleaningpro.com.au`. Org domains: `sarabisfinerugs.com.au`, `sarabisfinerugs.com`, `rugcleaningpro.com.au`.
+
+## Review Focus
+
+Inputs the spec implies but no single task's happy path exercises, most likely to bite first. Each is pinned to a test in the owning task.
+
+1. **A Zoho error body that is a JSON array** (`[2, {"errorCode": "INVALID_OAUTHSCOPE"}]`) on any endpoint. Expected: the client maps it to `insufficient_scope`, never throws a parse error. Pinned in M1 Task 1.5.
+2. **A reply whose reconstructed recipient list is empty after removing own addresses** (replying to a message this account sent to itself). Expected: fall back to the original To, then to self, never "at least one recipient is required". Pinned in M3 Task 3.3.
+3. **A list page where `threadId` filtering returns messages from several folders** (Sent plus Inbox). Expected: `get_thread` carries each message's own `folderId` so later detail calls do not 404. Pinned in M2 Task 2.3.
+4. **A staged upload whose Zoho upload result is older than the handle expiry** (sealed handle expired between stage and send). Expected: send refuses with `handle_expired`, never sends without the attachment. Pinned in M5 Task 5.2.
+5. **An installer run on a Mac where Claude Desktop's config file exists with other servers and trailing whitespace** (a hand-edited file). Expected: the merge keeps every other key byte-for-byte in meaning and writes a backup first. Pinned in M6 Task 6.7.
+
+## Registry of names every milestone uses
+
+These are the exact names later tasks rely on. A task's implementer sees only their task; this table is how they learn the neighbours' names.
+
+| Name | Defined in | Signature |
+|---|---|---|
+| `Deps.zohoFetch` | M0 Task 0.4 | `typeof fetch` |
+| `FakeZoho` | M0 Task 0.5 | class with `fetch: typeof fetch`, `accounts`, `mail: FakeZohoMail`, `issue()`, `grantCode()`, `faults` |
+| `ZOHO` | M1 Task 1.1 | `{ issuer, authUrl, tokenUrl, jwksUrl, revokeUrl, mailBase(location) }` |
+| `LOGIN_SCOPES`, `CONNECT_SCOPES` | M1 Task 1.1 | string constants |
+| `exchangeCode(env, deps, {code, redirectUri})` | M1 Task 1.1 | `Promise<TokenResponse>` where `TokenResponse` has `access_token, refresh_token?, expires_in, id_token?, scope, location, api_domain` |
+| `verifyIdToken(env, deps, idToken, {nonce})` | M1 Task 1.1 | `Promise<{sub, email}>` |
+| `fetchZohoAccounts(deps, location, accessToken)` | M1 Task 1.1 | `Promise<ZohoAccount[]>`; `ZohoAccount = { accountId, primaryEmail, sendAs: string[] }` |
+| `AccountDO` | M1 Task 1.3 | Durable Object class; RPC: `admit(toolCallId: string): Promise<AdmitResult>`, `budget(toolCallId: string, counter: BudgetCounter, n: number): Promise<boolean>`, `accessToken(o: {userId: string; accountId: string; forceRefresh?: boolean}): Promise<string>`, `invalidateToken(): Promise<void>` |
+| `AdmitResult` | M1 Task 1.3 | `{ ok: true } \| { ok: false; retry_after_ms: number }` |
+| `BudgetCounter` | M1 Task 1.3 | `"requests" \| "bodies" \| "attachments" \| "bytes"` |
+| `zohoJson<T>(env, deps, acct, req)` | M1 Task 1.5 | `acct = { userId, accountId, toolCallId }`; `req = ZohoRequest`; returns parsed `data` or throws `ZohoApiError` |
+| `zohoStream(env, deps, acct, req)` | M1 Task 1.5 | returns `Response` for streaming bodies |
+| `ZohoRequest` | M1 Task 1.5 | `{ method, path, query?, json?, body?, headers?, retry: "safe" \| "none", scope: "account" \| "root" }` |
+| `ZohoApiError` | M1 Task 1.5 | `extends GmailMcpError` with `status`, `zohoCode: string \| null` |
+| `mail.*` wrappers | M2 Task 2.1 | listed in that task |
+| `MessageView` | M2 Task 2.2 | same field names as Gmail's `MessageView` plus `folder_id: string`, `flag: string`, `archived: boolean` |
+| `messageView(ref, o)` | M2 Task 2.2 | builds a `MessageView` from a `ZohoMessageRef` |
+| `systemFolders(env, deps, acct)` | M2 Task 2.1 | `Promise<{ inbox, drafts, sent, trash, spam: string }>` cached 10 minutes in the account DO |
+| `planSend` / `executeSend` | M3 Task 3.3 | as in Gmail, payload is `ZohoSendPayload` |
+| `sealedHandle` table | M0 Task 0.2 | columns in the migration |
+| `uploadToZoho(env, deps, acct, o)` | M5 Task 5.1 | `Promise<ZohoUploadRef>`; `ZohoUploadRef = { storeName, attachmentName, attachmentPath, attachmentSize }` |
+| `companion/src/native/*` | M6 Tasks 6.1 to 6.4 | `InProcessNative implements NativePort` |
+
+## Test kit
+
+- Worker: Vitest under workerd through `@cloudflare/vitest-plugin`, `test/setup.ts` applies migrations, `testEnv()` and `testDeps(fakeZoho)` from `test/test-env.ts`. Every Zoho call in tests goes through `FakeZoho.fetch`.
+- Companion: Vitest in Node; `NativePort` doubles as in the Gmail tests; the Node native port gets its own suite against a temporary directory.
+- Shell: `install.sh` is checked with `sh -n` and `shellcheck`, and exercised in M6 against a scratch `$HOME`.
+- Conformance: `scripts/probe/zoho-probe.mjs` runs read-only and write-then-trash checks against the client's mailbox with a READ-scoped token (M0 Task 0.7); its output is pasted into spec section 4.
+
+## Commit discipline
+
+Every task ends with a commit on `main` of the new repository. Messages are neutral (`feat:`, `fix:`, `test:`, `docs:`); no attribution lines beyond what the harness adds. `npm run verify` before every commit that touches code.
+
+## Plan gauntlet round 1 (2026-10-04, executed)
+
+Checks run against the Gmail source, the embedded scripts, live APIs and the local toolchain before this plan was handed over.
+
+| # | Check | Result | Change |
+|---|---|---|---|
+| P1 | Extract the M0 squash script and run it on the real Gmail migrations, then parse the output in SQLite | **Failed**: the third `r2_key` pattern found nothing after the first two consumed every occurrence, so the script aborted before writing | Single global `r2_key` substitution. Re-run: schema parses, zero old names; probes confirm `UNIQUE(user_id, slot)`, `kind IN ('zoho','refresh')`, `sealed_handles` foreign key and `location IN ('au')` all refuse as designed. |
+| P2 | Every Gmail file path and symbol the plan names | 21 paths exist; `randomHandle`, `sha256Hex`, `callTool`, `rt-seeded` exist | None. |
+| P3 | `transition()` signature in `operations/journal.ts` | `(db, operationId, from: OpState[], to)`; the M3 call passed a string | M3 Task 3.2 passes `["claimed"]`. |
+| P4 | Test helpers `loginAs`, `stagingGet`, `callTool(e, d, user, ...)` | `loginAs` and `stagingGet` do not exist; `callTool` takes `(worker, env, token, name, args)` | New M0 Task 0.8 `zoho-helpers.ts` built on the real `Browser`, `mintToken`, `csrfFrom`, `callTool`; M1 to M5 import it. |
+| P5 | `ensureTransfer` signature and `Principal` shape | `(env, principal, intent)`, `Principal = { userId, email, scope }` | M5 Task 5.3 test corrected. |
+| P6 | Em dashes in the plan files | 4, all inside grep patterns for the em dash itself | Patterns now use the UTF-8 byte escape; count is 0. |
+| P7 | `node --check` on the probe, mint-token and bundle scripts; `sh -n` and `shellcheck -S warning` on `install.sh` and `provision.sh` | All pass | None. |
+| P8 | Node APIs the companion needs on this Mac (Node 24.21): `statfsSync`, `O_NOFOLLOW`, `O_DIRECTORY`, `node:sqlite` `DatabaseSync` with WAL | All present; `node:sqlite` unflagged since Node 22.13 (Stability 1.1, prints an ExperimentalWarning) | `bin/companion` shim passes `--no-warnings=ExperimentalWarning`. |
+| P9 | Cloudflare permission group names used by the mint script, read from the live API with the minting token | All 8 names exist among 406 groups | None. |
+| P10 | `claude mcp get`, `codex mcp get`, `codex mcp add --url` | All exist (Claude Code current, Codex 0.160.0) | None. |
+| P11 | Node 22.18.0 macOS package URL and checksum | HTTP 200; SHASUMS256 `6dcf2540...5c35` | Installer pins the checksum in addition to the Apple signature check. |
+| P12 | Workers static assets on the Free plan | "Requests to static assets are free and unlimited" (pricing page) | None. |
+
+Not executed: any TypeScript in the plan (there is no `zoho-mail-mcp` repository yet, so nothing typechecks until M0 Task 0.1 runs); the Zoho read endpoints (no READ-scoped token until M7 Task 7.1); Codex's OAuth end to end (G14). Each is the first thing its milestone proves.
+
+## Plan gauntlet round 2 (2026-10-04, M1 executed in a scratch worktree)
+
+Raouf: "gauntlet the M1". The M0 and M1 code blocks were written into a detached worktree of the Gmail repository (`/tmp/g-m1`, Gmail names mapped back), the Durable Object binding added to `wrangler.jsonc`, `wrangler types` regenerated, then `tsc --noEmit` and the Vitest suite run under workerd. Two live probes of Zoho's AU token endpoint were made with the store plugin's credentials (read-only; no secret printed).
+
+| # | Check | Result | Change |
+|---|---|---|---|
+| Q1 | Live: keys of a real refresh response | `access_token, api_domain, expires_in, scope, token_type`; **no `location`** (the client's API app is not multi-DC) | `TokenResponse.location` optional; connect stores `tokens.location ?? "au"`; `api_domain` must end in `.com.au`. The plan's required `location` would have failed every connect in production. Spec D7 and section 9 amended. |
+| Q2 | Live: a dead refresh token, a wrong client secret, a bogus code | **HTTP 200** every time, body `{"error": "invalid_code"}` or `{"error": "invalid_client_secret"}` | `exchangeCode` and `refreshAccessToken` parse the body first and map `invalid_code` to `invalid_grant`; the fake answers the same way. The plan's `res.ok` branch would have thrown `internal` instead of `reconnect_required`. |
+| Q3 | `tsc --noEmit` on M0 plus M1 code | Clean after two fixes: a bogus `messageIdHeader: undefined` line in the fake (exactOptionalPropertyTypes), and `test/restore-floor.test.ts` building a `Deps` literal without `zohoFetch` | Fake line removed; M0 Task 0.3 names the test to edit. |
+| Q4 | Vitest: `fake-zoho`, `env`, `zoho-oidc`, `account-do` | 15 passed as written | None. |
+| Q5 | Vitest: `zoho-client` | 7 failed: every case seeded the same account id, D1 keeps rows across cases, unique constraint on the second insert | Each case seeds `a1`, `a2`, ... |
+| Q6 | Vitest: `zoho-client` after Q5 | 7 failed with 404 from the fake: the fixture's Zoho account id `zacc-a` is not numeric and the fake, like Zoho, routes on `/api/accounts/(\d+)/` | Fixture default `191000N`; M2's `zohoFixture` uses `1910001`. Then 7 passed: bucket, budget, refresh-once, `insufficient_scope`, 429, error code all proven under workerd. |
+| Q7 | Whole existing suite with M0 and M1 in place | 5 failures in `login`, `oauth`, `elicitation`, `connect` tests | Sequencing defect: M0 switched `ownerSubs()` to `OWNER_ZOHO_SUBS` while the Google login still read it, and the test env added a second owner. Fixed: M0 adds `ownerZohoSubs()` and leaves `ownerSubs()` on Google until M1 Task 1.2; M0 Task 0.8 (test helpers) runs after M1 Task 1.2 because `Browser.login` is Google until then. Re-run: 683 of 684 pass; the one failure was the M0 env test asserting the early switch, now corrected. |
+| Q8 | `ctx.storage.sql.exec` with several statements and bindings | Cloudflare docs: multiple statements allowed; bindings apply to the last statement only; `exec` is synchronous in the constructor | The constructor's multi-statement `exec` carries no bindings (the `BUCKET_CAPACITY` is interpolated as a constant). None. |
+| Q9 | Zoho revoke endpoint shape | `POST {accounts}/oauth/v2/token/revoke?token=...`, success `{"status":"success"}` | Matches `revokeToken`. None. |
+
+Not executed in this round: `connect.ts` and `tokens.ts` (described as edits to Gmail files, not full blocks; the lease wrapping and the slot binding are proven by M1 Tasks 1.3 and 1.4's tests when executed); the login page switch (Task 1.2). The worktree was removed after the round.
+
+## Plan gauntlet round 3 (2026-10-04, M2 to M7 executed in a scratch worktree)
+
+Raouf: "read all and gauntlet them". Same method as round 2, cumulative: M0 and M1 staged from the verified blocks, then each milestone's fully specified blocks layered on, `tsc --noEmit` after each, every test file that does not need the MCP test helpers run under workerd, the companion tests run under Node, the bundle script run, and a production-shaped `wrangler deploy --dry-run`.
+
+| # | Milestone | Check | Result | Change |
+|---|---|---|---|---|
+| R1 | M2 | Typecheck after the schema edits | Gmail `tools/labels.ts` broke on the new label input shapes | Label schema changes and the `labels.ts` deletion move to M4 Task 4.1, done together. |
+| R2 | M2 | Typecheck `read.ts` and `messages.ts` | `exactOptionalPropertyTypes` rejected `content: string \| undefined`; `ZohoId` not imported; `ZohoFolderName` declared after first use | Option types widened with `\| undefined`; import added; `ZohoFolderName` declared next to `ZohoId`. Blocks replaced with the compiled versions. |
+| R3 | M2 | Run `zoho-mail`, `zoho-messages`, `zoho-folders` | 6 failures: the shared `zohoFixture` seeded one account for every case | Fixture seeds a fresh numeric account per call. 10 of 10 pass. |
+| R4 | M3 | Typecheck after Task 3.2 | Replacing `operations/send.ts` in place broke `compose.ts`, `drafts.ts`, `send.ts`, `gate.ts` and the recovery tests, which import the Gmail symbols until 3.6 | New modules `operations/zoho-send.ts` and `operations/probe.ts`; the Gmail files are deleted in 3.6. |
+| R5 | M3 | Typecheck `zoho-send.ts` and `probe.ts` | `sha256Hex(TextEncoder output)` rejected under the lib types | Body hash through `hashCanonical(string)`. |
+| R6 | M3 | `sealed.ts` written from the "copy these functions" instruction | My own extraction produced duplicate definitions; the instruction was too loose for a zero-context implementer | Full `sealed.ts` file in the plan. |
+| R7 | M3 | Run `sealed`, `send-pipeline`, `probe` | 2 test defects: re-reserving for the **same** operation is idempotent by design (the test expected a CHECK failure); the probe test counted other cases' leftover rows | Tests fixed (a second operation is refused; assertions scoped to the case's own rows). 17 of 17 pass. |
+| R8 | M4 | Typecheck `organise.ts` with the schema additions | Clean once `MessageTargetInput` is declared before `LabelIds` | Noted in Task 4.1. |
+| R9 | M5 | Typecheck `attachments.ts`, `tools/attachments.ts`; run `upload-zoho.test` | Clean; 3 of 3 pass: the `tee()` hashing branch and the fake's raw upload work under workerd, digest and length mismatches refuse and seal nothing | Tests hash strings with `hashCanonical`. |
+| R10 | M0 | Whole suite with the new defaults | `engine`, `elicitation`, `mcp`, `operation-state-machine` cases that produced an approval through a plain `send_message` fail once `send.message` defaults to `allow` | M0 Task 0.4 names the test edits; a task is not done while the suite is red. |
+| R11 | M6 | Run `native-config.test` and `launchd.test` under Node | 4 of 4 pass; `plutil -lint` accepts the plist | None. |
+| R12 | M6 | Run `bundle.mjs` with the resolvable esbuild 0.28.1 | Packs 243 KB, checksum matches, `package/bin/companion` and `dist/companion.mjs` present, no `node_modules`; **running the bundle fails**: esbuild kept the source shebang and the `banner` added a second | `banner` removed; the bundle test now executes the bundle. |
+| R13 | M7 | `wrangler deploy --dry-run` with the production shape (no R2, Durable Object, assets binding, custom-domain route) | Config accepted; bindings listed; upload 1.78 MB, 341 KB gzip, under the Free plan's limit | None. |
+
+Not executed: the tool-level tests that need the MCP helpers (`read-tools`, `send-tools`, `policy-destination`, `drafts-tools`, `organise-tools`, `download`, `budgets`), because the helpers depend on the Zoho login switch (M1 Task 1.2) that is described, not a block; the companion's journal, safe-files and configure modules (described, not blocks); `connect.ts`, `tokens.ts`, `login.ts` edits. Each is the first thing its task proves. The worktree was removed after the round.
