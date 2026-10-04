@@ -22,3 +22,12 @@ GOOGLE_CLIENT_SECRET=placeholder
 # the sub of anyone whose email is in OWNER_EMAILS so you can paste it here.
 OWNER_GOOGLE_SUBS=
 OWNER_EMAILS=you@example.test
+
+# Zoho (AU data centre). Client from the Zoho API console, Server-based Application.
+ZOHO_CLIENT_ID=
+ZOHO_CLIENT_SECRET=
+# Comma separated Zoho subs allowed to log in; empty enables the bootstrap page.
+OWNER_ZOHO_SUBS=
+# The two mailbox slots and the addresses they must bind to.
+SLOTS={"sarabi":"info@sarabisfinerugs.com.au","rcp":"info@rugcleaningpro.com.au"}
+ORG_DOMAINS=sarabisfinerugs.com.au,sarabisfinerugs.com,rugcleaningpro.com.au

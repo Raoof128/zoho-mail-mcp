@@ -1,5 +1,6 @@
 import { defaultDeps, type Deps } from "../src/deps";
 import type { FakeGoogle } from "./fake-google";
+import type { FakeZoho } from "./fake-zoho";
 import { env } from "cloudflare:test";
 import type { Env } from "../src/env";
 
@@ -28,6 +29,11 @@ export function testEnv(overrides: Record<string, unknown> = {}): Env {
     OWNER_GOOGLE_SUBS: "owner-sub",
     OWNER_EMAILS: "owner@example.test",
     WORKER_HOSTNAME: "zoho-mail-mcp.example.workers.dev",
+    ZOHO_CLIENT_ID: "1000.ZOHOTEST",
+    ZOHO_CLIENT_SECRET: "zsecret",
+    OWNER_ZOHO_SUBS: "owner-sub",
+    SLOTS: JSON.stringify({ sarabi: "sarabi@example.test", rcp: "rcp@example.test" }),
+    ORG_DOMAINS: "example.test",
     ...overrides,
   } as unknown as Env;
 }
@@ -35,10 +41,12 @@ export function testEnv(overrides: Record<string, unknown> = {}): Env {
 export const HOST = "https://zoho-mail-mcp.example.workers.dev";
 
 /** Fake Google, no real sleeping, and an approval wait long enough for a browser approval to land inside it. */
-export function testDeps(g: FakeGoogle, overrides: Partial<Deps> = {}): Deps {
+/** Either fake while the Google tests remain (M1 Task 1.6 and M4 Task 4.2 retire FakeGoogle). */
+export function testDeps(g: FakeGoogle | FakeZoho, overrides: Partial<Deps> = {}): Deps {
   return {
     ...defaultDeps,
     googleFetch: g.fetch,
+    zohoFetch: g.fetch,
     // A resolved promise is a microtask, and a loop of those starves the timer queue, so an approval
     // scheduled with setTimeout could never land inside the wait loop. Yield a macrotask instead.
     sleep: () => new Promise((r) => setTimeout(r, 0)),
