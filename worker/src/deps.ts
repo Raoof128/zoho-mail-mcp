@@ -1,5 +1,6 @@
 export type Deps = {
-  googleFetch: typeof fetch; // removed in M1 Task 1.6
+  /** The Gmail API transport (google/gmail.ts and the recovery probe); removed with them in M4 Task 4.2. */
+  googleFetch: typeof fetch;
   zohoFetch: typeof fetch;
   sleep: (ms: number) => Promise<void>;
   approvalWait: { intervalMs: number; deadlineMs: number };

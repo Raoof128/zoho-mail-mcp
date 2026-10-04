@@ -2,9 +2,9 @@ import type { Env } from "../env";
 import type { Deps } from "../deps";
 import type { Binding, Deadlines, HttpObservation, Lease } from "../operations/recovery-types";
 import { admitRequest, recoveryFences, recoveryRow } from "../operations/recovery-admission";
-import { getAccessTokenPinned } from "./tokens";
+import { getAccessTokenPinned } from "../zoho/tokens";
 import { validateSessionUrl } from "./resumable";
-import { GOOGLE } from "./oidc";
+import { ZOHO } from "../zoho/oidc";
 import { hashCanonical } from "../crypto/canonical";
 
 export function retryAtFor(header: string | null, now: number, attempt: number): number {
@@ -33,7 +33,7 @@ async function allowed(
 ): Promise<boolean> {
   if (request.kind === "refresh")
     return (
-      request.url === GOOGLE.tokenUrl &&
+      request.url === ZOHO.tokenUrl &&
       request.init.method === "POST" &&
       request.init.body instanceof URLSearchParams &&
       request.init.body.toString().length <= 16384

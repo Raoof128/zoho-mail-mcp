@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { getAccessTokenPinned } from "../src/google/tokens";
+import { getAccessTokenPinned } from "../src/zoho/tokens";
 import { seedAccessToken, seedUserAndAccount } from "./fixtures";
 import { testEnv } from "./test-env";
 import { defaultDeps } from "../src/deps";
@@ -12,7 +12,8 @@ it("uses the same grant epoch across normal refresh", async () => {
   await account("pinned-refresh");
   const deps = {
     ...defaultDeps,
-    googleFetch: () =>
+    // Token refresh goes to Zoho since M1 Task 1.6.
+    zohoFetch: () =>
       Promise.resolve().then(() => Response.json({ access_token: "fresh", expires_in: 3600, token_type: "Bearer" })),
   };
   expect(
@@ -28,7 +29,8 @@ it("refuses a changed grant before cached-token return or refresh", async () => 
   let calls = 0;
   const deps = {
     ...defaultDeps,
-    googleFetch: () => {
+    // Token refresh goes to Zoho since M1 Task 1.6.
+    zohoFetch: () => {
       calls++;
       return Promise.resolve(Response.json({}));
     },
@@ -43,7 +45,8 @@ it("discards refresh response if the grant changes while in flight", async () =>
   await account("pinned-race");
   const deps = {
     ...defaultDeps,
-    googleFetch: async () => {
+    // Token refresh goes to Zoho since M1 Task 1.6.
+    zohoFetch: async () => {
       await e.DB.prepare("UPDATE accounts SET credential_version=1 WHERE id='pinned-race'").run();
       return Response.json({ access_token: "discard", expires_in: 3600, token_type: "Bearer" });
     },

@@ -5,8 +5,8 @@ import { seedAccessToken } from "./fixtures";
 import { claimRecovery } from "../src/operations/recovery-admission";
 import { cleanupRecovery, dueRecoveries } from "../src/operations/recovery-cron";
 import { observeDelivery, settleRecovered } from "../src/operations/reconcile";
-import { upsertAccount } from "../src/google/connect";
-import { revokeAccount } from "../src/google/tokens";
+import { upsertAccount } from "../src/zoho/connect";
+import { revokeAccount } from "../src/zoho/tokens";
 import { defaultDeps } from "../src/deps";
 import type { Deps } from "../src/deps";
 import type { Binding, Observation } from "../src/operations/recovery-types";
@@ -39,7 +39,7 @@ function probe(
     ...defaultDeps,
     googleFetch: async (input: RequestInfo | URL) => {
       const url = input instanceof Request ? input.url : String(input);
-      if (url === "https://oauth2.googleapis.com/token") {
+      if (url === "https://accounts.zoho.com.au/oauth/v2/token") {
         p.refreshes++;
         if (options.interruptOn === "refresh" && options.onInterrupt) {
           p.interrupted++;
@@ -64,6 +64,8 @@ function probe(
       });
     },
   };
+  // One stub serves both seams: Gmail calls through googleFetch, the token refresh through zohoFetch (M1 Task 1.6).
+  p.deps = { ...p.deps, zohoFetch: p.deps.googleFetch };
   return p;
 }
 
@@ -89,13 +91,16 @@ async function runOnce(
 }
 
 async function reconnect(env: Env, id: string): Promise<void> {
+  // A reconnect of the account's slot: same row, new grant, credential_version advances.
   await upsertAccount(env, {
     userId: id,
-    alias: "recovery",
-    googleSub: `sub-${id}`,
+    slot: "sarabi",
+    zohoSub: `sub-${id}`,
     email: "recovery@example.test",
+    zohoAccountId: "191000555",
+    location: "au",
     sendAs: [],
-    scopes: "gmail.modify",
+    scopes: "ZohoMail.messages.ALL",
     refreshToken: "rt-reconnected",
     accessToken: "at-reconnected",
     accessExpiresAt: Date.now() + 3_600_000,

@@ -82,6 +82,13 @@ export class FakeGoogle {
       const form = await req.formData();
       if (field(form, "client_id") !== "1000.ZOHOTEST" || field(form, "client_secret") !== "zsecret")
         return Response.json({ error: "invalid_client_secret" });
+      if (field(form, "grant_type") === "refresh_token") {
+        // Gmail-era tests still refresh through this fake; the token module now refreshes at Zoho (M1 Task 1.6).
+        if (this.beforeRefresh) await this.beforeRefresh();
+        if (this.refreshTokens.get(field(form, "refresh_token")) !== "ok")
+          return Response.json({ error: "invalid_code" });
+        return Response.json({ access_token: `at-${++this.accessCounter}`, expires_in: 3600, token_type: "Bearer" });
+      }
       if (field(form, "grant_type") !== "authorization_code") return Response.json({ error: "unsupported_grant_type" });
       const rec = this.codes.get(field(form, "code"));
       if (!rec) return Response.json({ error: "invalid_code" });

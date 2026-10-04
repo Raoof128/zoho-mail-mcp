@@ -30,8 +30,6 @@ describe("plan 2 scaffold", () => {
       "TOKEN_KEK_CURRENT",
       "STATE_HMAC_KEY",
       "CSRF_HMAC_KEY",
-      "GOOGLE_CLIENT_ID",
-      "GOOGLE_CLIENT_SECRET",
       "ZOHO_CLIENT_ID",
       "ZOHO_CLIENT_SECRET",
       "OWNER_ZOHO_SUBS",

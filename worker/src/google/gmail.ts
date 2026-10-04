@@ -4,7 +4,7 @@ import type { Deps } from "../deps";
 import type { Env } from "../env";
 import { validateSessionUrl } from "./resumable";
 import type { UploadEndpoint } from "../operations/recovery-types";
-import { getAccessToken, getAccessTokenPinned } from "./tokens";
+import { getAccessToken, getAccessTokenPinned } from "../zoho/tokens";
 
 export const GMAIL = {
   api: "https://gmail.googleapis.com/gmail/v1/users/me/",

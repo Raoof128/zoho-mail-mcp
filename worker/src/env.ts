@@ -10,9 +10,6 @@ declare global {
       TOKEN_KEK_CURRENT: string;
       STATE_HMAC_KEY: string;
       CSRF_HMAC_KEY: string;
-      // Google stays declared until M1 Task 1.6 deletes worker/src/google.
-      GOOGLE_CLIENT_ID: string;
-      GOOGLE_CLIENT_SECRET: string;
       ZOHO_CLIENT_ID: string;
       ZOHO_CLIENT_SECRET: string;
       OWNER_ZOHO_SUBS: string; // comma separated Zoho subs allowed to log in; empty enables bootstrap

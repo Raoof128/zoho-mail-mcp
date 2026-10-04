@@ -30,10 +30,12 @@ describe("AccountDO", () => {
     expect(await stub.acquireRefreshLease("h3", 50)).toBe("acquired");
   });
   it("caches a value with a ttl", async () => {
+    // Deterministic: no sleeping. A 50 ms ttl read back immediately failed under host load (M1 Task 1.6).
     const stub = accountStub(env, "cache-1");
-    await stub.setCache("folders", JSON.stringify({ inbox: "1" }), 50);
+    await stub.setCache("folders", JSON.stringify({ inbox: "1" }), 60_000);
     expect(await stub.getCache("folders")).toBe(JSON.stringify({ inbox: "1" }));
-    await new Promise((r) => setTimeout(r, 60));
+    await stub.setCache("folders", JSON.stringify({ inbox: "2" }), -1);
     expect(await stub.getCache("folders")).toBeNull();
+    expect(await stub.getCache("never-set")).toBeNull();
   });
 });
