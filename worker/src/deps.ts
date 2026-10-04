@@ -3,6 +3,8 @@ export type Deps = {
   zohoFetch: typeof fetch;
   sleep: (ms: number) => Promise<void>;
   approvalWait: { intervalMs: number; deadlineMs: number };
+  /** Test-only handle to the fake behind zohoFetch, read by test/zoho-helpers.ts. Never set in production. */
+  __zoho?: unknown;
 };
 export const defaultDeps: Deps = {
   googleFetch: (input, init) => fetch(input, init),

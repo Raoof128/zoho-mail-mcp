@@ -30,7 +30,7 @@ export function testEnv(overrides: Record<string, unknown> = {}): Env {
     WORKER_HOSTNAME: "zoho-mail-mcp.example.workers.dev",
     ZOHO_CLIENT_ID: "1000.ZOHOTEST",
     ZOHO_CLIENT_SECRET: "zsecret",
-    OWNER_ZOHO_SUBS: "owner-sub",
+    OWNER_ZOHO_SUBS: "owner-sub,u",
     SLOTS: JSON.stringify({ sarabi: "sarabi@example.test", rcp: "rcp@example.test" }),
     ORG_DOMAINS: "example.test",
     ...overrides,
@@ -46,6 +46,7 @@ export function testDeps(g: FakeGoogle | FakeZoho, overrides: Partial<Deps> = {}
     ...defaultDeps,
     googleFetch: g.fetch,
     zohoFetch: g.fetch,
+    __zoho: g,
     // A resolved promise is a microtask, and a loop of those starves the timer queue, so an approval
     // scheduled with setTimeout could never land inside the wait loop. Yield a macrotask instead.
     sleep: () => new Promise((r) => setTimeout(r, 0)),
