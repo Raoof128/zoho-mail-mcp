@@ -1,7 +1,6 @@
-import { env } from "cloudflare:test";
 import { describe, it, expect } from "vitest";
 import { FakeZoho } from "./fake-zoho";
-import { testEnv, testDeps, HOST } from "./test-env";
+import { testEnv, testDeps } from "./test-env";
 import { createWorker } from "../src/index";
 import { loginAs } from "./zoho-helpers";
 
