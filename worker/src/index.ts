@@ -179,3 +179,4 @@ export default {
   fetch: (request, env, ctx) => worker.fetch(request, { ...env, BUILD_ID }, ctx),
   scheduled: (controller, env, ctx) => worker.scheduled(controller, { ...env, BUILD_ID }, ctx),
 } satisfies ExportedHandler<Env>;
+export { AccountDO } from "./zoho/account-do";
