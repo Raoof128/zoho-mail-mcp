@@ -156,7 +156,7 @@ describe("send_message", () => {
       message: { id: expect.stringMatching(/^m/), thread_id: expect.any(String) },
     });
     const raw = lastRaw();
-    expect(raw).toContain(`Message-ID: <${r.result.operation_id}@gmail-mcp.example.workers.dev>`);
+    expect(raw).toContain(`Message-ID: <${r.result.operation_id}@zoho-mail-mcp.example.workers.dev>`);
     expect(raw).toContain("From: <uni@example.test>");
     expect(raw).toContain('To: "Prof" <prof@uni.test>');
     expect(raw).toContain("Subject: =?UTF-8?B?SGkg8J+agA==?=");
@@ -170,7 +170,7 @@ describe("send_message", () => {
     expect(op).toMatchObject({
       state: "executed",
       settlement_protocol: 2,
-      rfc822_message_id: `<${r.result.operation_id}@gmail-mcp.example.workers.dev>`,
+      rfc822_message_id: `<${r.result.operation_id}@zoho-mail-mcp.example.workers.dev>`,
       gmail_result_id: r.result.message.id,
     });
     expect(JSON.parse(op.result_json)).toEqual({ gmail_result_id: r.result.message.id, message: r.result.message });

@@ -1,6 +1,6 @@
 import { recoveryBudget } from "./budgets";
-import { STAGING_LIMITS as L, UploadMetadata, type TransferResult } from "@gmail-mcp/shared/staging";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { STAGING_LIMITS as L, UploadMetadata, type TransferResult } from "@zoho-mail-mcp/shared/staging";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Env } from "../env";
 import type { Principal } from "../auth/principal";
 import { sha256Hex } from "../crypto/canonical";
@@ -21,7 +21,7 @@ import {
 } from "./transfers";
 
 class InterruptedUpload extends Error {}
-class UploadIntegrityError extends GmailMcpError {
+class UploadIntegrityError extends McpError {
   constructor() {
     super("handle_invalid", "handle_invalid: upload integrity");
   }
@@ -74,22 +74,22 @@ export async function acceptUpload(
     .bind(p.userId, ticket)
     .first<GenerationRow>();
   if (!g || g.state !== "issued" || g.issued_until <= now)
-    throw new GmailMcpError("handle_invalid", "handle_invalid: ticket unavailable");
+    throw new McpError("handle_invalid", "handle_invalid: ticket unavailable");
   const t = (await readTransfer(db, p.userId, g.transfer_id))!;
   if (t.active_generation !== g.generation || t.authority_until <= now)
-    throw new GmailMcpError("handle_invalid", "handle_invalid: stale ticket");
+    throw new McpError("handle_invalid", "handle_invalid: stale ticket");
   const m = UploadMetadata.parse(JSON.parse(t.metadata_json));
   if (
     request.headers.get("content-length") !== String(m.size) ||
     request.headers.get("content-type") !== m.mime ||
     ![null, "identity"].includes(request.headers.get("content-encoding"))
   )
-    throw new GmailMcpError("handle_invalid", "handle_invalid: upload headers");
+    throw new McpError("handle_invalid", "handle_invalid: upload headers");
   assertNotBlocked(m.filename);
   const policy = await policySnapshot(env, p.userId, t.account_id);
   if (policy.level === "deny") {
     await terminalBeforeAdmission(env, t, "denied", "policy_denied");
-    throw new GmailMcpError("policy_denied", "policy_denied: upload admission");
+    throw new McpError("policy_denied", "policy_denied: upload admission");
   }
   if (policy.level === "ask") {
     const approved = t.pending_id
@@ -113,7 +113,7 @@ export async function acceptUpload(
           )
           .bind(t.user_id, t.id),
       ]);
-      throw new GmailMcpError("pending_not_approved", "pending_not_approved: policy now requires approval");
+      throw new McpError("pending_not_approved", "pending_not_approved: policy now requires approval");
     }
   }
   const account = await db
@@ -122,7 +122,7 @@ export async function acceptUpload(
     .first<{ credential_version: number }>();
   if (!account) {
     await terminalBeforeAdmission(env, t, "failed", "account_needs_reconnect");
-    throw new GmailMcpError("account_needs_reconnect", "account_needs_reconnect: upload");
+    throw new McpError("account_needs_reconnect", "account_needs_reconnect: upload");
   }
   const until = now + L.leaseMs;
   try {
@@ -155,7 +155,7 @@ export async function acceptUpload(
         .bind(now, t.operation_id),
     ]);
   } catch {
-    throw new GmailMcpError("handle_invalid", "handle_invalid: upload admission lost or busy");
+    throw new McpError("handle_invalid", "handle_invalid: upload admission lost or busy");
   }
   let putStarted = false;
   let putReturned = false;
@@ -163,7 +163,7 @@ export async function acceptUpload(
     const bytes = await readBody(request, m.size);
     const digest = await sha256Hex(bytes);
     if (digest !== m.sha256) throw new UploadIntegrityError();
-    if (Date.now() >= until) throw new GmailMcpError("handle_invalid", "handle_invalid: upload lease expired");
+    if (Date.now() >= until) throw new McpError("handle_invalid", "handle_invalid: upload lease expired");
     putStarted = true;
     await env.STAGING.put(g.r2_key, bytes, {
       httpMetadata: { contentType: m.mime },

@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { SessionStatus, UploadEndpoint } from "../operations/recovery-types";
 
 const KNOWN_SEGMENTS = new Set(["upload", "resumable", "gmail", "v1", "users", "me", "drafts", "messages", "send"]);
@@ -52,7 +52,7 @@ export function describeSessionUrl(raw: string): SessionUrlShape {
 }
 const refused = (reason: string, raw: string) => {
   console.warn(JSON.stringify({ event: "resumable_session_refused", reason, shape: describeSessionUrl(raw) }));
-  return new GmailMcpError("gmail_error", "invalid resumable session endpoint");
+  return new McpError("gmail_error", "invalid resumable session endpoint");
 };
 /** Inspect raw grammar before URL can erase traversal. Never include capability text in errors. */
 export function validateSessionUrl(raw: string, endpoint: UploadEndpoint): URL {

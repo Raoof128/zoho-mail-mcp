@@ -2,7 +2,7 @@ import { storageBatch, producerStopped } from "./settlement";
 import { withMaterialization, type Materialization } from "./materialization";
 import { byteQuota, accountAssert, assertion } from "./transfers";
 import { leasedDownload, acknowledgeDownload } from "./downloads";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Env } from "../env";
 import { sha256Hex } from "../crypto/canonical";
 import { randomHandle } from "../crypto/random";
@@ -46,7 +46,7 @@ async function readExactly(body: ReadableStream<Uint8Array>, length: number): Pr
       const { done, value } = await reader.read();
       if (done) break;
       if (offset + value.byteLength > length) {
-        throw new GmailMcpError("limit_exceeded", `limit_exceeded: body longer than declared length ${length}`);
+        throw new McpError("limit_exceeded", `limit_exceeded: body longer than declared length ${length}`);
       }
       out.set(value, offset);
       offset += value.byteLength;
@@ -55,7 +55,7 @@ async function readExactly(body: ReadableStream<Uint8Array>, length: number): Pr
     reader.releaseLock();
   }
   if (offset !== length) {
-    throw new GmailMcpError("limit_exceeded", `limit_exceeded: body was ${offset} bytes, declared ${length}`);
+    throw new McpError("limit_exceeded", `limit_exceeded: body was ${offset} bytes, declared ${length}`);
   }
   return out;
 }
@@ -82,10 +82,7 @@ export async function ingest(
   // attachments the owner is saving to their own disk.
   if (o.direction === "upload") assertNotBlocked(filename);
   if (!Number.isInteger(o.length) || o.length < 0 || o.length > LIMITS.stagedFileBytes) {
-    throw new GmailMcpError(
-      "limit_exceeded",
-      `limit_exceeded: length ${o.length} not within 0..${LIMITS.stagedFileBytes}`,
-    );
+    throw new McpError("limit_exceeded", `limit_exceeded: length ${o.length} not within 0..${LIMITS.stagedFileBytes}`);
   }
 
   const handle = randomHandle();
@@ -95,7 +92,7 @@ export async function ingest(
   )
     .bind(o.accountId, o.userId)
     .first<{ credential_version: number }>();
-  if (!account) throw new GmailMcpError("account_needs_reconnect", "account_needs_reconnect");
+  if (!account) throw new McpError("account_needs_reconnect", "account_needs_reconnect");
   await env.DB.batch([
     env.DB.prepare("UPDATE staging_materializations SET reserved_bytes=0 WHERE id=?").bind(o.materialization.id),
     ...byteQuota(env.DB, o.userId, o.length),
@@ -114,9 +111,8 @@ export async function ingest(
     const bytes = await readExactly(o.body, o.length);
     const sha256 = await sha256Hex(bytes);
     if (o.declaredSha256 && o.declaredSha256.toLowerCase() !== sha256)
-      throw new GmailMcpError("handle_invalid", "handle_invalid: declared sha256 mismatch");
-    if (Date.now() >= o.materialization.until)
-      throw new GmailMcpError("handle_expired", "handle_expired: materialization");
+      throw new McpError("handle_invalid", "handle_invalid: declared sha256 mismatch");
+    if (Date.now() >= o.materialization.until) throw new McpError("handle_expired", "handle_expired: materialization");
     putStarted = true;
     await env.STAGING.put(r2Key, bytes, { httpMetadata: { contentType: o.mime } });
     putReturned = true;
@@ -258,14 +254,14 @@ export async function listUploadHandles(
   const found = new Set(rows.results.map((r) => r.handle));
   const missing = o.handles.filter((h) => !found.has(h));
   if (missing.length > 0)
-    throw new GmailMcpError("handle_invalid", `handle_invalid: ${missing.join(", ")}`, { handles: missing });
+    throw new McpError("handle_invalid", `handle_invalid: ${missing.join(", ")}`, { handles: missing });
   return o.handles.map((h) => rows.results.find((r) => r.handle === h)!);
 }
 
 /** The bytes as a stream, so a 25 MB attachment is never held in the isolate at once. */
 export async function openStaged(env: Env, row: StagingRow): Promise<ReadableStream<Uint8Array>> {
   const obj = await env.STAGING.get(row.r2_key);
-  if (!obj) throw new GmailMcpError("handle_invalid", `handle_invalid: object missing for ${row.handle}`);
+  if (!obj) throw new McpError("handle_invalid", `handle_invalid: object missing for ${row.handle}`);
   return obj.body;
 }
 

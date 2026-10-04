@@ -1,5 +1,5 @@
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
-import { TransferIntent } from "@gmail-mcp/shared/staging";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
+import { TransferIntent } from "@zoho-mail-mcp/shared/staging";
 import { ZodError } from "zod";
 import type { Deps } from "../deps";
 import { requireScope } from "../auth/principal";
@@ -13,21 +13,21 @@ const TICKET = /^\/staging\/(ut_[A-Za-z0-9_-]{43})$/;
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "cache-control": "no-store" } });
 async function readIntent(request: Request) {
   if (request.headers.get("content-type")?.split(";")[0] !== "application/json")
-    throw new GmailMcpError("handle_invalid", "handle_invalid: JSON required");
+    throw new McpError("handle_invalid", "handle_invalid: JSON required");
   const reader = (request.body as ReadableStream<Uint8Array> | null)?.getReader();
-  if (!reader) throw new GmailMcpError("handle_invalid", "handle_invalid: missing intent");
+  if (!reader) throw new McpError("handle_invalid", "handle_invalid: missing intent");
   const chunks: Uint8Array[] = [];
   let size = 0;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => reject(new GmailMcpError("limit_exceeded", "limit_exceeded: intent timeout")), 30_000);
+    timer = setTimeout(() => reject(new McpError("limit_exceeded", "limit_exceeded: intent timeout")), 30_000);
   });
   try {
     for (;;) {
       const p = await Promise.race([reader.read(), deadline]);
       if (p.done) break;
       size += p.value.length;
-      if (size > 65536) throw new GmailMcpError("limit_exceeded", "limit_exceeded: intent body");
+      if (size > 65536) throw new McpError("limit_exceeded", "limit_exceeded: intent body");
       chunks.push(p.value);
     }
   } finally {
@@ -79,7 +79,7 @@ export function stagingApiHandler(_deps: Deps): FetchHandler {
         }
         return json({ error: "method_not_allowed" }, 405);
       } catch (e) {
-        if (e instanceof GmailMcpError) {
+        if (e instanceof McpError) {
           const status =
             e.code === "policy_denied"
               ? 403

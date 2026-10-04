@@ -180,7 +180,7 @@ describe("spam and trash", () => {
     const before = gm().requests.length;
     const r = await call("untrash_message", { account: "cold", message_id: "m1" });
     expect(r.result).toMatchObject({ status: "connect_required", account: "cold" });
-    expect(r.result.url).toMatch(/^https:\/\/gmail-mcp\.example\.workers\.dev\/connect\?alias=cold&e=/);
+    expect(r.result.url).toMatch(/^https:\/\/zoho-mail-mcp\.example\.workers\.dev\/connect\?alias=cold&e=/);
     expect(gm().requests.length).toBe(before);
   });
   it("Gmail's error is surfaced verbatim and the call is audited as failed", async () => {

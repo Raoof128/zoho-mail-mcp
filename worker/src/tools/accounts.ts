@@ -1,4 +1,4 @@
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Env } from "../env";
 import type { TrustContext } from "../policy/recipients";
 
@@ -22,7 +22,7 @@ type Row = {
 
 function toRef(row: Row): AccountRef {
   if (row.status !== "active") {
-    throw new GmailMcpError("account_needs_reconnect", `account_needs_reconnect: ${row.alias} is ${row.status}`, {
+    throw new McpError("account_needs_reconnect", `account_needs_reconnect: ${row.alias} is ${row.status}`, {
       alias: row.alias,
     });
   }
@@ -48,7 +48,7 @@ export async function resolveAccount(env: Env, userId: string, alias?: string): 
         .bind(userId)
         .first<Row>();
   if (!row)
-    throw new GmailMcpError(
+    throw new McpError(
       "account_not_found",
       alias ? `account_not_found: ${alias}` : "account_not_found: no default account",
     );
@@ -59,7 +59,7 @@ export async function accountById(env: Env, userId: string, accountId: string): 
   const row = await env.DB.prepare(`SELECT ${COLS} FROM accounts WHERE user_id = ? AND id = ?`)
     .bind(userId, accountId)
     .first<Row>();
-  if (!row) throw new GmailMcpError("account_not_found", "account_not_found");
+  if (!row) throw new McpError("account_not_found", "account_not_found");
   return toRef(row);
 }
 

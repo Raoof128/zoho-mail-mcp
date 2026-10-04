@@ -8,9 +8,9 @@ import { z } from "zod";
 import type { Env } from "../env";
 import { randomId } from "../crypto/random";
 export const COMPANION_KEY = "companion_client_id";
-export const COMPANION_MARKER = "gmail-mcp-companion:attempt:";
+export const COMPANION_MARKER = "zoho-mail-mcp-companion:attempt:";
 export const isCompanionName = (name: unknown) =>
-  typeof name === "string" && (name.startsWith(COMPANION_MARKER) || name === "gmail-mcp-companion");
+  typeof name === "string" && (name.startsWith(COMPANION_MARKER) || name === "zoho-mail-mcp-companion");
 const Attempt = z.object({
   marker: z.string().startsWith(COMPANION_MARKER),
   fence: z.string(),

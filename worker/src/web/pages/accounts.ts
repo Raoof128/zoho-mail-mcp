@@ -79,7 +79,7 @@ ${rows.join("\n")}
 <h2>Local companion</h2>
 ${
   companion
-    ? `<p>Client id for <code>gmail-mcp-companion login</code>:</p><pre>${escapeHtml(companion)}</pre>`
+    ? `<p>Client id for <code>zoho-mail-mcp-companion login</code>:</p><pre>${escapeHtml(companion)}</pre>`
     : `<form method="post" action="/accounts"><input type="hidden" name="csrf" value="${escapeHtml(companionCsrf)}"><input type="hidden" name="account" value="companion"><button name="op" value="register_companion">Register the companion client</button></form>`
 }
 </section>

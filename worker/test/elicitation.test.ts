@@ -64,7 +64,7 @@ describe("modern era with elicitation.url", () => {
     });
     const url: string = first.inputRequired.inputRequests.approval.params.url;
     const id = url.split("/approve/")[1]!;
-    expect(url).toBe(`https://gmail-mcp.example.workers.dev/approve/${id}`);
+    expect(url).toBe(`https://zoho-mail-mcp.example.workers.dev/approve/${id}`);
     const state: string = first.inputRequired.requestState;
     expect(state).toMatch(/^v1\./);
     expect((await getPending(env.DB, id, "owner-sub"))!.state).toBe("pending");

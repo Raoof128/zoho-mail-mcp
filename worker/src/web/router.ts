@@ -1,4 +1,4 @@
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Deps } from "../deps";
 import type { Env } from "../env";
 import { checkOrigin, csrfToken, verifyCsrf } from "./csrf";
@@ -13,11 +13,11 @@ const FORM_CAP = 64 * 1024;
 
 export async function readForm(request: Request): Promise<URLSearchParams> {
   const len = Number(request.headers.get("content-length") ?? "0");
-  if (len > FORM_CAP) throw new GmailMcpError("limit_exceeded", "form too large");
+  if (len > FORM_CAP) throw new McpError("limit_exceeded", "form too large");
   // Decoded from bytes rather than request.text(): the runtime warns that text() on a urlencoded
   // body may corrupt it, and the byte count is what the cap is about anyway.
   const text = new TextDecoder().decode(await request.arrayBuffer());
-  if (text.length > FORM_CAP) throw new GmailMcpError("limit_exceeded", "form too large");
+  if (text.length > FORM_CAP) throw new McpError("limit_exceeded", "form too large");
   return new URLSearchParams(text);
 }
 
@@ -110,7 +110,7 @@ export function webHandler(deps: Deps, routes: Route[]): FetchHandler {
         try {
           return await r.handler({ request, env, deps, url, params: m.slice(1) });
         } catch (e) {
-          if (e instanceof GmailMcpError) {
+          if (e instanceof McpError) {
             return htmlResponse("Error", `<p>${e.code}</p>`, null, STATUS[e.code] ?? 400);
           }
           console.error("web handler failure", (e as Error).message);

@@ -1,4 +1,4 @@
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Env } from "../env";
 import { getPending, type PendingRow } from "../approval/pending";
 import type { OperationRow } from "../operations/journal";
@@ -101,10 +101,7 @@ export async function replayFor(
   o: { tool: string; intentHash: string; alias: string; userId: string },
 ): Promise<Record<string, unknown> | "fresh"> {
   if (row.tool !== o.tool || row.intent_hash !== o.intentHash) {
-    throw new GmailMcpError(
-      "idempotency_conflict",
-      "idempotency_conflict: key previously used for a different request",
-    );
+    throw new McpError("idempotency_conflict", "idempotency_conflict: key previously used for a different request");
   }
   if (row.operation_id) {
     const op = await opRow(env.DB, row.operation_id);

@@ -9,7 +9,7 @@ export function buildCompanionServer(
   factory: () => NativePort = () => new NativeProcess(),
   authenticate: typeof authenticated = authenticated,
 ): McpServer {
-  const server = new McpServer({ name: "gmail-mcp-companion", version: "0.0.1" });
+  const server = new McpServer({ name: "zoho-mail-mcp-companion", version: "0.0.1" });
   async function run(operation: (native: NativePort) => Promise<unknown>) {
     const native = factory();
     try {

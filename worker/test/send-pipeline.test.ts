@@ -65,7 +65,7 @@ describe("sendMime", () => {
   it("small: media upload; the operation is executing with the Message-ID before the request opens; nothing settles here", async () => {
     const id = await op();
     const mid = messageIdFor(e, id);
-    expect(mid).toBe(`<${id}@gmail-mcp.example.workers.dev>`);
+    expect(mid).toBe(`<${id}@zoho-mail-mcp.example.workers.dev>`);
     let seenState: string | undefined;
     gm().before = async () => {
       seenState = (await opRow(id)).state;

@@ -21,13 +21,13 @@ export type ErrorCode =
   | "forbidden"
   | "internal";
 
-export class GmailMcpError extends Error {
+export class McpError extends Error {
   constructor(
     public readonly code: ErrorCode,
     message: string,
     public readonly details?: Record<string, unknown>,
   ) {
     super(message);
-    this.name = "GmailMcpError";
+    this.name = "McpError";
   }
 }

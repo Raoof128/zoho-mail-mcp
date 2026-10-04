@@ -48,7 +48,7 @@ should describe the refusal, not the flag.
 
 ### One new open item
 
-Plan 7 added `gmail-mcp-companion debt`, which clears a charged save reservation in exactly one state: a
+Plan 7 added `zoho-mail-mcp-companion debt`, which clears a charged save reservation in exactly one state: a
 `publication_unknown` receipt whose temporary is provably absent. An end-to-end run on 2026-09-19 found a
 second charged state with no remedy.
 

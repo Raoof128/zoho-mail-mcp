@@ -1,7 +1,7 @@
 import { installationAssertion } from "./installation";
 import { z } from "zod";
-import { MODIFIERS } from "@gmail-mcp/shared/actions";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { MODIFIERS } from "@zoho-mail-mcp/shared/actions";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Env } from "../env";
 import { validateSessionUrl } from "../google/resumable";
 import { Keyring } from "../crypto/keyring";
@@ -85,10 +85,10 @@ export async function beginRecoverableOperation(env: Env, input: Binding, sessio
       ? b.generatedMessageId !== null
       : b.generatedMessageId !== `<${b.operationId}@${env.WORKER_HOSTNAME}>`)
   ) {
-    throw new GmailMcpError("internal", "recovery binding refused");
+    throw new McpError("internal", "recovery binding refused");
   }
   if (sessionUrl !== null && (b.executor === "send_draft" || b.mimeLength === null))
-    throw new GmailMcpError("internal", "invalid session binding");
+    throw new McpError("internal", "invalid session binding");
   if (sessionUrl !== null) validateSessionUrl(sessionUrl, { kind: "send" });
   const encrypted =
     sessionUrl === null
@@ -194,7 +194,7 @@ export async function settlePositive(
   fences: D1PreparedStatement[],
 ): Promise<"settled" | "replayed" | "conflict"> {
   const op = await operationFor(db, operationId);
-  if (!op || op.settlement_protocol !== 2) throw new GmailMcpError("internal", "recovery operation unavailable");
+  if (!op || op.settlement_protocol !== 2) throw new McpError("internal", "recovery operation unavailable");
   const identity = JSON.stringify([result.message.id, result.message.thread_id]);
   if (op.state === "executed") return op.result_identity === identity ? "replayed" : "conflict";
   const context = settlementContext.parse(JSON.parse(op.settlement_context_json ?? "null"));
@@ -245,7 +245,7 @@ export async function recordFailure(
 ): Promise<"failed_safe" | "delivery_unknown" | "executed"> {
   const db = env.DB;
   const op = await operationFor(db, operationId);
-  if (!op || op.settlement_protocol !== 2) throw new GmailMcpError("internal", "recovery operation unavailable");
+  if (!op || op.settlement_protocol !== 2) throw new McpError("internal", "recovery operation unavailable");
   if (op.state === "executed" || op.state === "delivery_unknown" || op.state === "failed_safe") return op.state;
   const state = op.state === "claimed" && op.byte_admitted === 0 ? "failed_safe" : "delivery_unknown";
   const now = Date.now();

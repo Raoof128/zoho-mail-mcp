@@ -1,4 +1,4 @@
-import type { MessageFormat } from "@gmail-mcp/shared/schemas";
+import type { MessageFormat } from "@zoho-mail-mcp/shared/schemas";
 import { fromB64url } from "../crypto/random";
 
 export type GmailHeader = { name: string; value: string };

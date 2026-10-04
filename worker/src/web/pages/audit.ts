@@ -1,5 +1,5 @@
-import { ACTIONS } from "@gmail-mcp/shared/actions";
-import { AccountAlias } from "@gmail-mcp/shared/schemas";
+import { ACTIONS } from "@zoho-mail-mcp/shared/actions";
+import { AccountAlias } from "@zoho-mail-mcp/shared/schemas";
 import { escapeHtml } from "../html";
 import { type Route, page, requireSession } from "../router";
 

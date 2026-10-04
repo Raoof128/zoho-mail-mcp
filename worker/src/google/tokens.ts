@@ -1,4 +1,4 @@
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Deps } from "../deps";
 import type { Env } from "../env";
 import { Keyring } from "../crypto/keyring";
@@ -25,11 +25,11 @@ async function load(db: D1Database, userId: string, accountId: string): Promise<
     )
     .bind(accountId, userId)
     .first<TokenRow>();
-  if (!row) throw new GmailMcpError("account_not_found", "account_not_found");
+  if (!row) throw new McpError("account_not_found", "account_not_found");
   return row;
 }
 
-const reconnect = (why: string) => new GmailMcpError("account_needs_reconnect", `account_needs_reconnect: ${why}`);
+const reconnect = (why: string) => new McpError("account_needs_reconnect", `account_needs_reconnect: ${why}`);
 
 /**
  * Every credential write is conditional on the version read at the start and on the row still being
@@ -169,7 +169,7 @@ export async function revokeAccount(env: Env, deps: Deps, userId: string, accoun
     }
     return;
   }
-  throw new GmailMcpError("internal", "revoke lost three races with concurrent credential writes");
+  throw new McpError("internal", "revoke lost three races with concurrent credential writes");
 }
 
 /** credential_version identifies a grant; refreshing its access token never advances it. */

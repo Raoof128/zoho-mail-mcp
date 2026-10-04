@@ -41,7 +41,7 @@ The command validates private artifacts and publishes an exclusive preparation r
 
 ```sh
 python3 scripts/qualification/capture_writer_corpus.py --check
-npm test -w @gmail-mcp/worker -- --run test/recovery-legacy
+npm test -w @zoho-mail-mcp/worker -- --run test/recovery-legacy
 ```
 
 The generator verifies 136 distinct site identities and SQL hashes against the pinned baseline. All 136 sites now have matched-row execution accounting across eight fixture groups. Each group records a site only after its statements and state assertions pass; missing duplicate-body sites fail coverage. The fixture matrix includes protocol-1 controls, protocol-2 refusal or predicate-exclusion checks, and original settlement/claimed-operation batches. Upload-specific multi-statement interruption and race acceptance remains separate; complete site coverage does not close those tests or authorize a release.

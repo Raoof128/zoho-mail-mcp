@@ -40,11 +40,11 @@ describe("csrf", () => {
   });
   it("origin must match the worker hostname when present and is required on POST", () => {
     const mk = (origin?: string, method = "POST") =>
-      new Request("https://gmail-mcp.example.workers.dev/approve/x", {
+      new Request("https://zoho-mail-mcp.example.workers.dev/approve/x", {
         method,
         headers: origin ? { origin } : {},
       });
-    expect(checkOrigin(mk("https://gmail-mcp.example.workers.dev"), env)).toBe(true);
+    expect(checkOrigin(mk("https://zoho-mail-mcp.example.workers.dev"), env)).toBe(true);
     expect(checkOrigin(mk("https://evil.test"), env)).toBe(false);
     expect(checkOrigin(mk("null"), env)).toBe(false);
     expect(checkOrigin(mk(undefined), env)).toBe(false);

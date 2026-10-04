@@ -277,7 +277,7 @@ decision rather than a safety one: a failure in between recovers as retryable, w
 A charge released only on proof needs a way out when the proof can never arrive.
 `recoverStartup` collects a leftover temporary on every helper start by checking the device and inode it
 recorded; when it cannot, the receipt becomes `publication_unknown` and the reservation stays charged
-against the 25 MiB save budget until a human acts. `gmail-mcp-companion debt` is that action. It lists
+against the 25 MiB save budget until a human acts. `zoho-mail-mcp-companion debt` is that action. It lists
 what is charged, and `debt --scope SCOPE --release HANDLE` clears a charge in exactly one state: a
 `publication_unknown` receipt whose temporary is provably absent, where ENOENT is the only outcome
 accepted as proof and a permission error or a lost root answers `unknown` and refuses. Releasing repairs

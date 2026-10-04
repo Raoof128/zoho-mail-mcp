@@ -49,7 +49,7 @@ async function main() {
     if (!values.origin || !values["client-id"]) throw new Error("usage");
     const roots: Record<string, { path: string; read: boolean; write: boolean }> = {
       attachments: {
-        path: resolve(values["write-root"] ?? homedir() + "/Downloads/Gmail MCP"),
+        path: resolve(values["write-root"] ?? homedir() + "/Downloads/Mail"),
         read: false,
         write: true,
       },
@@ -103,7 +103,7 @@ async function main() {
         // is already cleared. A temporary that survives to be printed is one the collector
         // refused, which is why the remedy here is not "start the companion".
         const remedy = row.releasable
-          ? `run: gmail-mcp-companion debt --scope ${row.scope} --release ${row.handle}`
+          ? `run: zoho-mail-mcp-companion debt --scope ${row.scope} --release ${row.handle}`
           : row.temporary === "present"
             ? "not collected: the helper ran with this listing and left it. Its temporary exists but does not match the identity recorded at creation, so nothing may remove it safely. Report this rather than deleting anything by hand."
             : `not clearable: state ${row.state}, temporary ${row.temporary}`;
@@ -128,7 +128,7 @@ async function main() {
 }
 main().catch(() => {
   process.stderr.write(
-    "Companion command failed. Check configuration, permissions, login and the native build.\nUsage: gmail-mcp-companion init --origin https://HOST --client-id ID [--read-root ID=PATH] [--write-root PATH] | login | logout | serve | debt [--scope SCOPE --release HANDLE]\n",
+    "Companion command failed. Check configuration, permissions, login and the native build.\nUsage: zoho-mail-mcp-companion init --origin https://HOST --client-id ID [--read-root ID=PATH] [--write-root PATH] | login | logout | serve | debt [--scope SCOPE --release HANDLE]\n",
   );
   process.exitCode = 1;
 });

@@ -1,5 +1,5 @@
 import { assertInstallation } from "../operations/installation";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Deps } from "../deps";
 import type { Env } from "../env";
 import { validateSessionUrl } from "./resumable";
@@ -34,7 +34,7 @@ export type GmailRequest = {
   retry: "safe" | "none";
 };
 
-export class GmailApiError extends GmailMcpError {
+export class GmailApiError extends McpError {
   constructor(
     public readonly status: number,
     public readonly googleMessage: string,

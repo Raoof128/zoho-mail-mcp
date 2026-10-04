@@ -75,11 +75,11 @@ expect(requiredProof("generated_search")).toBe("generated-id");
 expect(requiredProof("send_session_status")).toBe("session-status");
 ```
 
-- [ ] Run `npm test -w @gmail-mcp/qualification -- --run test/artifacts.test.ts test/evidence.test.ts`; retain the missing-contract/incorrect-verdict RED results.
+- [ ] Run `npm test -w @zoho-mail-mcp/qualification -- --run test/artifacts.test.ts test/evidence.test.ts`; retain the missing-contract/incorrect-verdict RED results.
 - [ ] Implement the appendix’s exact typed sample schemas, reason enum, source resolution and verdict matrix; verify private source files before deriving a pass and reject undeclared extra attempts. Add one complete positive run→enable test per mode, with all nine common components, and reject swapped mode proof, missing common component or altered component snapshot. Version-1 evidence cannot enable. Keep media-boundary/rollback synthetic and draft-negative mixed. Model the three physical trials without requiring three acknowledgements. A release-component run has no power to enable a mode. Revocation uses a separately authorized sacrificial account/run; its expected grant change must not silently rewrite a recovery-mode identity. Finish revocation/reconnect before qualifying a target grant.
 - [ ] **1B: Preparation identity.** Implement the appendix allocation/intent commitment and closed outcome set before fixture activity. Test an omitted failed preparation, duplicate/extra sample, substituted operation ID, absent intent slot and crash before probe. Task 4 implements the durable writer; Task 1 fixes its exact interface and pure transition rules.
 - [ ] **1C: Bounded probe.** Implement every named predicate in appendix section 5, including dueRecoveries, both claim/qualification predicates and settleRecovered fences. Persist probe expiry as min(now+604800000, intent.expiresAt); retain separate enabled lifetime. No grace for new recovery request/refresh/retry/settlement at expiry. Preserve original direct positive receipt semantics. Test scheduled selection→claim→zero-body request→settlement for listed normal and scratch operations, then unlisted/foreign/disabled/wrong-epoch/expired refusals. Pause before request, during refresh and before settlement at expiry−1/expiry/expiry+1. No rebinding of operations or extension of their horizon.
-- [ ] Rerun targeted qualification tests and `npm test -w @gmail-mcp/worker -- --run test/recovery-probe-scope.test.ts test/recovery-budgets.test.ts`. Commit `fix(qualification): define attributable mode and release evidence`.
+- [ ] Rerun targeted qualification tests and `npm test -w @zoho-mail-mcp/worker -- --run test/recovery-probe-scope.test.ts test/recovery-budgets.test.ts`. Commit `fix(qualification): define attributable mode and release evidence`.
 
 ## Task 2: Complete transport and settlement fault schedules (C01)
 
@@ -88,7 +88,7 @@ expect(requiredProof("send_session_status")).toBe("session-status");
 **Interfaces:** `barrier(point: BarrierPoint): Promise<void>` in test fixtures, with `BarrierPoint` equal to bound, reserved, mime-start, headers, partial-body, provider-commit, response, settlement-statement, settlement-commit, disable or reconnect. No production route or remotely selected fault name.
 
 - [ ] Build the executable matrix over media send, multipart reply, resumable send and direct draft send. Mark only inapplicable byte points on draft-ID POST with a reason. Include operation/key/pending/reservation/audit assertions, not just request counts.
-- [ ] Run `npm test -w @gmail-mcp/worker -- --run test/recovery-transport-matrix.test.ts` and capture failures for absent barriers. A representative invariant is:
+- [ ] Run `npm test -w @zoho-mail-mcp/worker -- --run test/recovery-transport-matrix.test.ts` and capture failures for absent barriers. A representative invariant is:
 
 ```ts
 expect(snapshot.externalMutations).toBeLessThanOrEqual(1);
@@ -124,7 +124,7 @@ expect(snapshot.keyOperationId).toBe(snapshot.operationId);
 - [ ] Run failing tests before implementing missing checks. For an uncertain producer assert `expect(remove).not.toHaveBeenCalled()`; include DELETE-then-late-PUT scheduling rather than only a static unknown flag.
 - [ ] **4B: Storage debt.** Cover interruptions before/after R2 delete and before bookkeeping; preserve quota debt and operation/key truth. Reject foreign/unrelated handles; prove later direct positive receipt still settles once. Redact injected credential/session-shaped errors from all result paths.
 - [ ] **4C: Durable preparation.** Spawn actual Node CLI processes for preflight refusal, crash after intent consumption, crash before probe, ambiguous probe response and immutable failure publication. Recover the same committed preparation; every allocated sample gets an outcome, including failed/uncertain/not-run. Already-consumed slots permit read-only reconciliation, not mutation. Reject copied output directories and new UUIDs attempting to reuse the same authorization. Publish intended probe epoch before the batch, then verify it read-only after uncertain response; do not create a second epoch.
-- [ ] Run `npm test -w @gmail-mcp/qualification`; commit `test(qualification): cover administrative interruption and scope`.
+- [ ] Run `npm test -w @zoho-mail-mcp/qualification`; commit `test(qualification): cover administrative interruption and scope`.
 
 ## Task 5: Wire real provider qualification controllers (C03, C05)
 
@@ -330,7 +330,7 @@ Trusted transport adapters can publish a strict projection containing only the s
 
 Production adapters, sacrificial-target dependencies, mutation-bearing preparation closure and the administration interruption matrix remain pending. The local result journal establishes provenance for argument resolution; it does not prove provider settlement or cross-host exclusion. Provider-barrier, writer-quiescence and peak-memory gates remain open. No live mutation or device acceptance occurred.
 
-Verification: `npm run verify` passed 680 tests: shared 11, Worker 562, companion 9 and qualification 98. Planning checks passed 28 cases and strict TypeScript compilation; SQLite checks passed 18 tests. The captured-writer regeneration check and `git diff --check` passed. Reproduce the focused checks with `npm test --workspace=@gmail-mcp/qualification -- --run test/intent-resolution.test.ts test/intent-results.test.ts test/mutation-dispatch.test.ts`. Native code did not change; its preceding 18-test/release-build evidence remains historical.
+Verification: `npm run verify` passed 680 tests: shared 11, Worker 562, companion 9 and qualification 98. Planning checks passed 28 cases and strict TypeScript compilation; SQLite checks passed 18 tests. The captured-writer regeneration check and `git diff --check` passed. Reproduce the focused checks with `npm test --workspace=@zoho-mail-mcp/qualification -- --run test/intent-resolution.test.ts test/intent-results.test.ts test/mutation-dispatch.test.ts`. Native code did not change; its preceding 18-test/release-build evidence remains historical.
 
 ## Inline execution record: v2 platform identity integration (2026-09-17)
 

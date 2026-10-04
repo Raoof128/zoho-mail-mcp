@@ -6,7 +6,7 @@ import { FakeGoogle } from "./fake-google";
 import { testEnv, testDeps } from "./test-env";
 import { seedUserAndAccount } from "./fixtures";
 import { applyPolicyEdit, effectiveLevel } from "../src/policy/engine";
-import type { Level } from "@gmail-mcp/shared/actions";
+import type { Level } from "@zoho-mail-mcp/shared/actions";
 
 let g: FakeGoogle;
 let worker: ReturnType<typeof createWorker>;

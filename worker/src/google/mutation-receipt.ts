@@ -1,9 +1,9 @@
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 
 /** Bound only the small mutation receipt, not the streamed MIME upload or attachment downloads. */
 export async function readMutationReceipt<T>(response: Response): Promise<T> {
   const reader: ReadableStreamDefaultReader<Uint8Array> | undefined = response.body?.getReader();
-  if (!reader) throw new GmailMcpError("internal", "mutation receipt unavailable");
+  if (!reader) throw new McpError("internal", "mutation receipt unavailable");
   const until = Date.now() + 15000;
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_, reject) => {
@@ -30,7 +30,7 @@ export async function readMutationReceipt<T>(response: Response): Promise<T> {
   } catch {
     // Cancellation must not keep the operation pending if a broken transport never acknowledges it.
     void reader.cancel().catch(() => undefined);
-    throw new GmailMcpError("internal", "mutation receipt unavailable");
+    throw new McpError("internal", "mutation receipt unavailable");
   } finally {
     if (timer !== undefined) clearTimeout(timer);
     reader.releaseLock();

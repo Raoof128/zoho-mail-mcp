@@ -18,7 +18,7 @@ const Binding = z.object({ authorizationId: z.string().uuid(), preparationCommit
 export async function createIntentStore(
   authorizationId: string,
   preparationCommitment: string,
-  storeRoot = join(homedir(), ".gmail-mcp-qualification-intents"),
+  storeRoot = join(homedir(), ".zoho-mail-mcp-qualification-intents"),
 ): Promise<DurableIntentStore> {
   const binding = Binding.parse({ authorizationId, preparationCommitment });
   await mkdir(storeRoot, { mode: 0o700 }).catch((error: unknown) => {
@@ -127,7 +127,7 @@ async function optionalRecord(path: string): Promise<{ value: unknown } | null> 
 export async function openIntentJournal(
   authorizationId: string,
   preparationCommitment: string,
-  storeRoot = join(homedir(), ".gmail-mcp-qualification-intents"),
+  storeRoot = join(homedir(), ".zoho-mail-mcp-qualification-intents"),
 ): Promise<IntentJournal> {
   const binding = Object.freeze(Binding.parse({ authorizationId, preparationCommitment }));
   const root = await privateDirectory(storeRoot);

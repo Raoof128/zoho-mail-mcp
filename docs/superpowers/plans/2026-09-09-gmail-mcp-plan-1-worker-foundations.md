@@ -50,7 +50,7 @@ gmail/
   shared/
     package.json  tsconfig.json  vitest.config.ts
     src/actions.ts                 Action, Modifier, Level, DEFAULT_POLICY, JOURNALED_ACTIONS
-    src/errors.ts                  GmailMcpError, ErrorCode
+    src/errors.ts                  McpError, ErrorCode
     src/schemas.ts                 zod: AccountAlias, StagingHandle, Sha256Hex, StagingHandleResponse, PendingApprovalResult, UploadIntent
     test/actions.test.ts
   worker/
@@ -124,7 +124,7 @@ describe("worker smoke", () => {
 
 ```json
 {
-  "name": "gmail-mcp",
+  "name": "zoho-mail-mcp",
   "private": true,
   "workspaces": ["shared", "worker"],
   "scripts": {
@@ -165,7 +165,7 @@ dist/
 
 ```json
 {
-  "name": "@gmail-mcp/shared",
+  "name": "@zoho-mail-mcp/shared",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -199,7 +199,7 @@ export default defineConfig({ test: { include: ["test/**/*.test.ts"] } });
 
 ```json
 {
-  "name": "@gmail-mcp/worker",
+  "name": "@zoho-mail-mcp/worker",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -211,7 +211,7 @@ export default defineConfig({ test: { include: ["test/**/*.test.ts"] } });
     "migrate:local": "wrangler d1 migrations apply gmail-mcp --local"
   },
   "dependencies": {
-    "@gmail-mcp/shared": "0.0.1",
+    "@zoho-mail-mcp/shared": "0.0.1",
     "@modelcontextprotocol/server": "2.0.0",
     "agents": "0.22.0",
     "zod": "4.5.4"
@@ -240,11 +240,11 @@ export default defineConfig({ test: { include: ["test/**/*.test.ts"] } });
 ```jsonc
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "gmail-mcp",
+  "name": "zoho-mail-mcp",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
-  "vars": { "WORKER_HOSTNAME": "gmail-mcp.example.workers.dev" },
+  "vars": { "WORKER_HOSTNAME": "zoho-mail-mcp.example.workers.dev" },
   "d1_databases": [
     { "binding": "DB", "database_name": "gmail-mcp", "database_id": "local-dev", "migrations_dir": "migrations" },
   ],
@@ -367,7 +367,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Interfaces:**
 
-- Produces: `ACTIONS`, `type Action`, `MODIFIERS`, `type Modifier`, `LEVELS`, `type Level`, `DEFAULT_POLICY`, `raise`, `JOURNALED_ACTIONS`; `GmailMcpError`, `ErrorCode`; zod `AccountAlias`, `StagingHandle`, `Sha256Hex`, `StagingHandleResponse`, `PendingApprovalResult`, `UploadIntent`.
+- Produces: `ACTIONS`, `type Action`, `MODIFIERS`, `type Modifier`, `LEVELS`, `type Level`, `DEFAULT_POLICY`, `raise`, `JOURNALED_ACTIONS`; `McpError`, `ErrorCode`; zod `AccountAlias`, `StagingHandle`, `Sha256Hex`, `StagingHandleResponse`, `PendingApprovalResult`, `UploadIntent`.
 
 - [x] **Step 1 (RED): test**
 
@@ -552,14 +552,14 @@ export type ErrorCode =
   | "forbidden"
   | "internal";
 
-export class GmailMcpError extends Error {
+export class McpError extends Error {
   constructor(
     public readonly code: ErrorCode,
     message: string,
     public readonly details?: Record<string, unknown>,
   ) {
     super(message);
-    this.name = "GmailMcpError";
+    this.name = "McpError";
   }
 }
 ```
@@ -1308,8 +1308,8 @@ describe("recipientModifiers", () => {
 `worker/src/policy/recipients.ts`:
 
 ```ts
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
-import type { Modifier } from "@gmail-mcp/shared/actions";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
+import type { Modifier } from "@zoho-mail-mcp/shared/actions";
 
 export type ParsedAddress = { local: string; domain: string; normalized: string };
 export type TrustContext = { selfAddresses: string[]; allowlist: string[]; orgDomains: string[] };
@@ -1320,7 +1320,7 @@ const LOCAL = /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~
 const DOMAIN = /^[A-Za-z0-9\u00a1-\uffff-]+(?:\.[A-Za-z0-9\u00a1-\uffff-]+)+$/u;
 
 function fail(raw: string): never {
-  throw new GmailMcpError("invalid_address", `invalid_address: ${raw.slice(0, 64)}`);
+  throw new McpError("invalid_address", `invalid_address: ${raw.slice(0, 64)}`);
 }
 
 export function toAsciiDomain(domain: string): string {
@@ -1365,7 +1365,7 @@ export function isTrusted(addr: ParsedAddress, ctx: TrustContext): boolean {
 
 export function recipientModifiers(all: string[], ctx: TrustContext): Modifier[] {
   if (all.length > MAX_RECIPIENTS) {
-    throw new GmailMcpError("limit_exceeded", `limit_exceeded: recipients ${all.length} > ${MAX_RECIPIENTS}`);
+    throw new McpError("limit_exceeded", `limit_exceeded: recipients ${all.length} > ${MAX_RECIPIENTS}`);
   }
   const parsed = all.map(parseAddress);
   const distinct = new Set(parsed.map((p) => p.normalized));
@@ -1493,7 +1493,7 @@ describe("headers and sizes", () => {
 `worker/src/policy/limits.ts`:
 
 ```ts
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 
 export const LIMITS = {
   subjectBytes: 998,
@@ -1566,7 +1566,7 @@ export function assertNotBlocked(filename: string): void {
   const dot = filename.lastIndexOf(".");
   if (dot <= 0 || dot === filename.length - 1) return;
   const ext = filename.slice(dot + 1).toLowerCase();
-  if (BLOCKED_EXTENSIONS.has(ext)) throw new GmailMcpError("blocked_extension", `blocked_extension: .${ext}`);
+  if (BLOCKED_EXTENSIONS.has(ext)) throw new McpError("blocked_extension", `blocked_extension: .${ext}`);
 }
 
 const CONTROL_OR_BIDI = /[\u0000-\u001f\u007f\u200e\u200f\u202a-\u202e\u2066-\u2069]/g;
@@ -1603,9 +1603,9 @@ export function sanitizeFilename(name: string): string {
 
 export function assertHeaderSafe(field: string, value: string): void {
   if (/[\r\n\0]/.test(value))
-    throw new GmailMcpError("invalid_header", `invalid_header: ${field} contains control characters`);
+    throw new McpError("invalid_header", `invalid_header: ${field} contains control characters`);
   if (field === "subject" && utf8Length(value) > LIMITS.subjectBytes) {
-    throw new GmailMcpError("limit_exceeded", `limit_exceeded: subject > ${LIMITS.subjectBytes} bytes`);
+    throw new McpError("limit_exceeded", `limit_exceeded: subject > ${LIMITS.subjectBytes} bytes`);
   }
 }
 ```
@@ -1705,8 +1705,8 @@ describe("decide with modifiers", () => {
 `worker/src/policy/engine.ts`:
 
 ```ts
-import { DEFAULT_POLICY, raise, type Action, type Level, type Modifier } from "@gmail-mcp/shared/actions";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { DEFAULT_POLICY, raise, type Action, type Level, type Modifier } from "@zoho-mail-mcp/shared/actions";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 
 export type Decision = { level: Level; base: Level; modifiers: Modifier[] };
 
@@ -1715,7 +1715,7 @@ export async function assertAccount(db: D1Database, userId: string, accountId: s
     .prepare("SELECT id FROM accounts WHERE id = ? AND user_id = ?")
     .bind(accountId, userId)
     .first<{ id: string }>();
-  if (!row) throw new GmailMcpError("account_not_found", "account_not_found");
+  if (!row) throw new McpError("account_not_found", "account_not_found");
 }
 
 export async function effectiveLevel(
@@ -2010,8 +2010,8 @@ describe("operations journal", () => {
 `worker/src/operations/journal.ts`:
 
 ```ts
-import type { Action } from "@gmail-mcp/shared/actions";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import type { Action } from "@zoho-mail-mcp/shared/actions";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import { randomId } from "../crypto/random";
 
 export type OpState = "claimed" | "executing" | "delivery_unknown" | "executed" | "failed_safe";
@@ -2061,12 +2061,9 @@ export async function acquire(
     .prepare("SELECT * FROM operations WHERE user_id = ? AND account_id = ? AND idempotency_key = ?")
     .bind(o.userId, o.accountId, o.idempotencyKey)
     .first<OperationRow>();
-  if (!row) throw new GmailMcpError("internal", "acquire: row vanished after insert");
+  if (!row) throw new McpError("internal", "acquire: row vanished after insert");
   if (row.action !== o.action || row.payload_hash !== o.payloadHash) {
-    throw new GmailMcpError(
-      "idempotency_conflict",
-      "idempotency_conflict: key previously used for a different operation",
-    );
+    throw new McpError("idempotency_conflict", "idempotency_conflict: key previously used for a different operation");
   }
   if (row.id === id) return { operationId: id, existing: null };
   return { operationId: row.id, existing: row };
@@ -2098,8 +2095,8 @@ A `failed_safe` row with a key blocks reuse of that key on purpose: the caller s
 `worker/src/approval/pending.ts`:
 
 ```ts
-import type { Action, Modifier } from "@gmail-mcp/shared/actions";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import type { Action, Modifier } from "@zoho-mail-mcp/shared/actions";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import { canonicalize, hashCanonical } from "../crypto/canonical";
 import { randomId } from "../crypto/random";
 import { LIMITS } from "../policy/limits";
@@ -2142,7 +2139,7 @@ export async function createPending(
 ): Promise<PendingRow> {
   const canonical = canonicalize(o.payload);
   if (new TextEncoder().encode(canonical).length > LIMITS.canonicalPayloadBytes) {
-    throw new GmailMcpError("limit_exceeded", "limit_exceeded: canonical payload > 1 MB");
+    throw new McpError("limit_exceeded", "limit_exceeded: canonical payload > 1 MB");
   }
   const hash = await hashCanonical(canonical);
   const id = randomId("pa");
@@ -2235,18 +2232,18 @@ export async function finishPending(
 `worker/src/approval/claim.ts`:
 
 ```ts
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
-import { StagingHandle } from "@gmail-mcp/shared/schemas";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
+import { StagingHandle } from "@zoho-mail-mcp/shared/schemas";
 import { randomId } from "../crypto/random";
 import { getPending, type PendingRow } from "./pending";
 
 /** Handles come from the approved payload only. Any other shape is a payload_mismatch, never a guess. */
 export function handlesFromPayload(payloadJson: string | null): string[] {
-  if (payloadJson === null) throw new GmailMcpError("payload_mismatch", "payload_mismatch: payload purged");
+  if (payloadJson === null) throw new McpError("payload_mismatch", "payload_mismatch: payload purged");
   const parsed = JSON.parse(payloadJson) as { attachments?: unknown };
   const list = parsed.attachments ?? [];
   if (!Array.isArray(list) || !list.every((h) => StagingHandle.safeParse(h).success)) {
-    throw new GmailMcpError("payload_mismatch", "payload_mismatch: attachments must be staging handles");
+    throw new McpError("payload_mismatch", "payload_mismatch: attachments must be staging handles");
   }
   return [...new Set(list as string[])];
 }
@@ -2262,10 +2259,9 @@ export async function claimPending(
   o: { id: string; userId: string },
 ): Promise<{ operationId: string; pending: PendingRow; handles: string[] }> {
   const before = await getPending(db, o.id, o.userId);
-  if (!before) throw new GmailMcpError("pending_not_approved", "pending_not_approved: unknown");
-  if (before.expires_at <= Date.now()) throw new GmailMcpError("pending_expired", "pending_expired");
-  if (before.state !== "approved")
-    throw new GmailMcpError("pending_not_approved", `pending_not_approved: ${before.state}`);
+  if (!before) throw new McpError("pending_not_approved", "pending_not_approved: unknown");
+  if (before.expires_at <= Date.now()) throw new McpError("pending_expired", "pending_expired");
+  if (before.state !== "approved") throw new McpError("pending_not_approved", `pending_not_approved: ${before.state}`);
   const handles = handlesFromPayload(before.payload_json);
 
   const operationId = randomId("op");
@@ -2312,11 +2308,11 @@ export async function claimPending(
     const msg = String((e as Error).message ?? e);
     const after = await getPending(db, o.id, o.userId);
     if (after?.state === "approved" && handles.length > 0) {
-      throw new GmailMcpError("handle_reserved", `handle_reserved: one or more payload handles unavailable (${msg})`);
+      throw new McpError("handle_reserved", `handle_reserved: one or more payload handles unavailable (${msg})`);
     }
     if (after?.state !== "approved")
-      throw new GmailMcpError("pending_replayed", `pending_replayed: ${after?.state ?? "unknown"}`);
-    throw new GmailMcpError("internal", msg);
+      throw new McpError("pending_replayed", `pending_replayed: ${after?.state ?? "unknown"}`);
+    throw new McpError("internal", msg);
   }
   return { operationId, pending: (await getPending(db, o.id, o.userId))!, handles };
 }
@@ -2541,7 +2537,7 @@ describe("hold, reserve, consume, release, purge", () => {
 `worker/src/staging/store.ts`:
 
 ```ts
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Env } from "../env";
 import { randomHandle } from "../crypto/random";
 import { LIMITS, assertNotBlocked, sanitizeFilename } from "../policy/limits";
@@ -2587,10 +2583,7 @@ export async function ingest(
   const filename = sanitizeFilename(o.filename);
   if (o.direction === "upload") assertNotBlocked(filename);
   if (!Number.isInteger(o.length) || o.length < 0 || o.length > LIMITS.stagedFileBytes) {
-    throw new GmailMcpError(
-      "limit_exceeded",
-      `limit_exceeded: length ${o.length} not within 0..${LIMITS.stagedFileBytes}`,
-    );
+    throw new McpError("limit_exceeded", `limit_exceeded: length ${o.length} not within 0..${LIMITS.stagedFileBytes}`);
   }
   const handle = randomHandle();
   const r2Key = `stg/${o.userId}/${handle}`;
@@ -2606,16 +2599,13 @@ export async function ingest(
   const failure = settled.find((s): s is PromiseRejectedResult => s.status === "rejected");
   if (failure) {
     await env.STAGING.delete(r2Key).catch(() => {});
-    if (failure.reason instanceof GmailMcpError) throw failure.reason;
-    throw new GmailMcpError(
-      "internal",
-      `ingest failed: ${String((failure.reason as Error)?.message ?? failure.reason)}`,
-    );
+    if (failure.reason instanceof McpError) throw failure.reason;
+    throw new McpError("internal", `ingest failed: ${String((failure.reason as Error)?.message ?? failure.reason)}`);
   }
   const sha256 = hex(await digest.digest);
   if (o.declaredSha256 && o.declaredSha256.toLowerCase() !== sha256) {
     await env.STAGING.delete(r2Key);
-    throw new GmailMcpError("handle_invalid", "handle_invalid: declared sha256 mismatch");
+    throw new McpError("handle_invalid", "handle_invalid: declared sha256 mismatch");
   }
   const now = Date.now();
   const row: StagingRow = {
@@ -2673,10 +2663,10 @@ export async function openForRead(
   )
     .bind(o.handle, o.userId)
     .first<StagingRow>();
-  if (!row) throw new GmailMcpError("handle_invalid", "handle_invalid");
-  if (row.expires_at <= Date.now()) throw new GmailMcpError("handle_expired", "handle_expired");
+  if (!row) throw new McpError("handle_invalid", "handle_invalid");
+  if (row.expires_at <= Date.now()) throw new McpError("handle_expired", "handle_expired");
   const obj = await env.STAGING.get(row.r2_key);
-  if (!obj) throw new GmailMcpError("handle_invalid", "handle_invalid: object missing");
+  if (!obj) throw new McpError("handle_invalid", "handle_invalid: object missing");
   return { row, body: obj.body };
 }
 
@@ -3227,9 +3217,9 @@ export function authenticateDev(request: Request, env: Env): Principal | null {
 ```ts
 import { McpServer } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { ACTIONS, DEFAULT_POLICY, type Action } from "@gmail-mcp/shared/actions";
-import { AccountAlias } from "@gmail-mcp/shared/schemas";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { ACTIONS, DEFAULT_POLICY, type Action } from "@zoho-mail-mcp/shared/actions";
+import { AccountAlias } from "@zoho-mail-mcp/shared/schemas";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Env } from "../env";
 import type { Principal } from "./auth-dev";
 import { effectiveLevel } from "../policy/engine";
@@ -3248,7 +3238,7 @@ async function resolveAccount(env: Env, userId: string, alias?: string): Promise
         .bind(userId)
         .first<{ id: string; alias: string }>();
   if (!row)
-    throw new GmailMcpError(
+    throw new McpError(
       "account_not_found",
       alias ? `account_not_found: ${alias}` : "account_not_found: no default account",
     );

@@ -1,7 +1,7 @@
 import { McpServer, type ServerContext } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { ACTIONS, DEFAULT_POLICY } from "@gmail-mcp/shared/actions";
-import { AccountAlias } from "@gmail-mcp/shared/schemas";
+import { ACTIONS, DEFAULT_POLICY } from "@zoho-mail-mcp/shared/actions";
+import { AccountAlias } from "@zoho-mail-mcp/shared/schemas";
 import type { Env } from "../env";
 import type { Deps } from "../deps";
 import type { Principal } from "../auth/principal";

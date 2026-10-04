@@ -1,5 +1,5 @@
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
-import { MediaType, type InlineAttachment, type MessageFormat } from "@gmail-mcp/shared/schemas";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
+import { MediaType, type InlineAttachment, type MessageFormat } from "@zoho-mail-mcp/shared/schemas";
 import type { Env } from "../env";
 import type { Deps } from "../deps";
 import { sha256Hex } from "../crypto/canonical";
@@ -26,12 +26,12 @@ export type ComposeArgs = {
 /** Spec 2.7 and 3.8, before policy and before any row: addresses parse, headers are clean, sizes fit. */
 export function validateCompose(a: ComposeArgs): void {
   const all = [...a.to, ...a.cc, ...a.bcc];
-  if (all.length > 500) throw new GmailMcpError("limit_exceeded", `limit_exceeded: recipients ${all.length} > 500`);
+  if (all.length > 500) throw new McpError("limit_exceeded", `limit_exceeded: recipients ${all.length} > 500`);
   for (const r of all) parseAddress(r);
   if (a.subject !== undefined) assertHeaderSafe("subject", a.subject);
   const bodyBytes = utf8Length(a.body ?? "") + utf8Length(a.html_body ?? "");
   if (bodyBytes > LIMITS.bodyBytes)
-    throw new GmailMcpError("limit_exceeded", `limit_exceeded: body ${bodyBytes} > ${LIMITS.bodyBytes} bytes`);
+    throw new McpError("limit_exceeded", `limit_exceeded: body ${bodyBytes} > ${LIMITS.bodyBytes} bytes`);
 }
 
 export function senderFor(account: AccountRef, from?: string): string {
@@ -39,7 +39,7 @@ export function senderFor(account: AccountRef, from?: string): string {
   const norm = parseAddress(from).normalized;
   const allowed = [account.email, ...account.sendAs].map((s) => parseAddress(s).normalized);
   if (!allowed.includes(norm))
-    throw new GmailMcpError("invalid_address", `invalid_address: ${from} is not a verified sender on this account`);
+    throw new McpError("invalid_address", `invalid_address: ${from} is not a verified sender on this account`);
   return from;
 }
 
@@ -67,7 +67,7 @@ export async function decodeInline(inline: InlineAttachment[] | undefined): Prom
     MediaType.parse(i.mime);
     const projected = Math.floor((i.content_base64.length * 3) / 4) - 2;
     if (total + projected > LIMITS.inlineAttachmentBytes) {
-      throw new GmailMcpError(
+      throw new McpError(
         "limit_exceeded",
         `limit_exceeded: inline attachments exceed ${LIMITS.inlineAttachmentBytes} bytes`,
       );
@@ -75,7 +75,7 @@ export async function decodeInline(inline: InlineAttachment[] | undefined): Prom
     const bytes = decodeBase64(i.content_base64);
     total += bytes.byteLength;
     if (total > LIMITS.inlineAttachmentBytes) {
-      throw new GmailMcpError(
+      throw new McpError(
         "limit_exceeded",
         `limit_exceeded: inline attachments exceed ${LIMITS.inlineAttachmentBytes} bytes`,
       );
@@ -139,7 +139,7 @@ export async function attachmentsFor(
   for (const r of rows) assertNotBlocked(r.filename);
   const total = rows.reduce((n, r) => n + r.size, 0) + extraBytes;
   if (total > account.sendLimitBytes)
-    throw new GmailMcpError(
+    throw new McpError(
       "limit_exceeded",
       `limit_exceeded: attachments ${total} > send limit ${account.sendLimitBytes} bytes`,
     );
@@ -196,7 +196,7 @@ export async function fetchAttachmentBytes(
     path: `messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`,
     retry: "safe",
   });
-  if (!body.data) throw new GmailMcpError("handle_invalid", "handle_invalid: attachment body empty");
+  if (!body.data) throw new McpError("handle_invalid", "handle_invalid: attachment body empty");
   return fromB64url(body.data);
 }
 

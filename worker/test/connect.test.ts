@@ -226,10 +226,10 @@ describe("connect an account", () => {
     const parsed = JSON.parse(call.json.result.content[0].text);
     expect(parsed.status).toBe("connect_required");
     expect(parsed.url).toMatch(
-      /^https:\/\/gmail-mcp\.example\.workers\.dev\/connect\?alias=work&e=\d+\.[A-Za-z0-9_-]{43}$/,
+      /^https:\/\/zoho-mail-mcp\.example\.workers\.dev\/connect\?alias=work&e=\d+\.[A-Za-z0-9_-]{43}$/,
     );
     const pol = await rpc(worker, e, t.accessToken, "tools/call", { name: "open_policy_editor", arguments: {} }, 6);
-    expect(JSON.parse(pol.json.result.content[0].text).url).toBe("https://gmail-mcp.example.workers.dev/policy");
+    expect(JSON.parse(pol.json.result.content[0].text).url).toBe("https://zoho-mail-mcp.example.workers.dev/policy");
     const rows = await env.DB.prepare(
       "SELECT tool, action, decision FROM audit_log WHERE user_id = 'owner-sub' AND tool IN ('connect_account','open_policy_editor')",
     ).all<any>();

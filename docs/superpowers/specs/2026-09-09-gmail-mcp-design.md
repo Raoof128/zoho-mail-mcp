@@ -233,7 +233,7 @@ Not used: `_meta.anthropic/requiresUserInteraction` (forces a client prompt on e
   "modifiers": ["+external", "+attachment"],
   "account": "university",
   "summary": "To: prof@uni.edu.au · Subject: Thesis draft · 1 attachment (thesis.pdf, 2.1 MB)",
-  "approval": { "mode": "url", "url": "https://gmail-mcp.example.workers.dev/approve/pa_7f3c…" },
+  "approval": { "mode": "url", "url": "https://zoho-mail-mcp.example.workers.dev/approve/pa_7f3c…" },
   "expires_at": "2026-09-09T10:15:00+10:00"
 }
 ```
@@ -459,7 +459,7 @@ The verification and CASA exclusion holds only while this remains a personal-use
 
 ### 4.5 Flow C: Companion to Worker
 
-`gmail-mcp-companion login` runs PKCE against the Worker's AS as the pre-registered public client `companion`, redirect `http://127.0.0.1:<ephemeral>/callback`, same Google OIDC identity step, token scope `staging` only. The native helper stores access and refresh tokens in macOS Keychain through Security.framework, with no secrets in argv or environment. A persisted epoch fences logout against older login commits. Staging routes check the bearer's `sub` against `staging_objects.user_id` inside the query.
+`zoho-mail-mcp-companion login` runs PKCE against the Worker's AS as the pre-registered public client `companion`, redirect `http://127.0.0.1:<ephemeral>/callback`, same Google OIDC identity step, token scope `staging` only. The native helper stores access and refresh tokens in macOS Keychain through Security.framework, with no secrets in argv or environment. A persisted epoch fences logout against older login commits. Staging routes check the bearer's `sub` against `staging_objects.user_id` inside the query.
 
 ### 4.6 Web pages and session security
 

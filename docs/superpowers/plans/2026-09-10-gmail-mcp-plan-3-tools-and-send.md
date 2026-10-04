@@ -129,7 +129,7 @@ One migration, `0003_intent.sql`: the idempotency table and three columns. Appen
 - Produces:
   - `Deps = { googleFetch: typeof fetch; sleep: (ms: number) => Promise<void>; approvalWait: { intervalMs: number; deadlineMs: number } }` with `defaultDeps` at `2000` and `120_000`.
   - `getAccessToken(env, deps, userId, accountId, o?: { forceRefresh?: boolean })`: with `forceRefresh` the cached access token is ignored and the refresh token is used.
-  - `class GmailApiError extends GmailMcpError` with `code: "gmail_error"`, `status: number`, `googleMessage: string`, `reason: string | null`.
+  - `class GmailApiError extends McpError` with `code: "gmail_error"`, `status: number`, `googleMessage: string`, `reason: string | null`.
   - `gmailFetch(env, deps, acct: { userId: string; accountId: string }, o: { method: "GET" | "POST" | "PUT" | "DELETE"; path: string; query?: Record<string, string | string[] | number | boolean | undefined>; json?: unknown; upload?: { kind: "media"; contentType: string; bytes: Uint8Array } | { kind: "resumable"; contentType: string; bytes: Uint8Array }; retry: "safe" | "none" }): Promise<Response>`. `path` is relative to `https://gmail.googleapis.com/gmail/v1/users/me/`; `upload.media` targets `/upload/gmail/v1/users/me/<path>?uploadType=media`; `upload.resumable` runs the two-step protocol against `/resumable/upload/gmail/v1/users/me/<path>?uploadType=resumable` and returns the final response. Returns the `Response` on 2xx; throws `GmailApiError` on any other definitive status; throws the original error on a network failure.
   - `gmailJson<T>(...)`: `gmailFetch` then `res.json<T>()`.
   - `isRateLimited(res)`: `429`, or `403` whose body reason is `rateLimitExceeded` or `userRateLimitExceeded`.
@@ -350,7 +350,7 @@ Nothing else in the file changes.
 `worker/src/google/gmail.ts`:
 
 ```ts
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Deps } from "../deps";
 import type { Env } from "../env";
 import { getAccessToken } from "./tokens";
@@ -377,7 +377,7 @@ export type GmailRequest = {
   retry: "safe" | "none";
 };
 
-export class GmailApiError extends GmailMcpError {
+export class GmailApiError extends McpError {
   constructor(
     public readonly status: number,
     public readonly googleMessage: string,
@@ -1344,7 +1344,7 @@ export type MessageFormat = z.infer<typeof MessageFormat>;
 `worker/src/google/messages.ts`:
 
 ```ts
-import type { MessageFormat } from "@gmail-mcp/shared/schemas";
+import type { MessageFormat } from "@zoho-mail-mcp/shared/schemas";
 import { fromB64url } from "../crypto/random";
 
 export type GmailHeader = { name: string; value: string };
@@ -1807,7 +1807,7 @@ describe("buildMime", () => {
     cc: [],
     bcc: ["hidden@example.test"],
     subject: "Thesis 🚀",
-    messageId: "<op_x@gmail-mcp.example.workers.dev>",
+    messageId: "<op_x@zoho-mail-mcp.example.workers.dev>",
     date: new Date("2026-09-10T00:00:00Z"),
   };
   const att = (filename: string, mime: string, bytes: Uint8Array) => ({
@@ -1826,7 +1826,7 @@ describe("buildMime", () => {
     expect(headers).toContain("To: <a@example.test>,\r\n =?UTF-8?B?Wm/Dqw==?= <zoe@example.test>");
     expect(headers).toContain("Bcc: <hidden@example.test>");
     expect(headers).toContain("Subject: =?UTF-8?B?VGhlc2lzIPCfmoA=?=");
-    expect(headers).toContain("Message-ID: <op_x@gmail-mcp.example.workers.dev>");
+    expect(headers).toContain("Message-ID: <op_x@zoho-mail-mcp.example.workers.dev>");
     expect(headers).toContain("Date: Thu, 10 Sep 2026 00:00:00 GMT");
     expect(headers).toContain("MIME-Version: 1.0");
     expect(headers).toContain("Content-Type: text/plain; charset=UTF-8");
@@ -1905,7 +1905,7 @@ Expected: FAIL, modules not found.
 `worker/src/mime/encode.ts`:
 
 ```ts
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import { assertHeaderSafe } from "../policy/limits";
 import { parseAddress } from "../policy/recipients";
 
@@ -2014,15 +2014,14 @@ export function foldHeader(name: string, value: string): string {
   lines.push(cur);
   for (const l of lines) {
     if (l.length > HARD_LINE)
-      throw new GmailMcpError("invalid_header", `invalid_header: ${name} line exceeds ${HARD_LINE} characters`);
+      throw new McpError("invalid_header", `invalid_header: ${name} line exceeds ${HARD_LINE} characters`);
   }
   return lines.join("\r\n") + "\r\n";
 }
 
 const RESTRICTED = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$/;
 export function assertMediaType(mime: string): void {
-  if (!RESTRICTED.test(mime))
-    throw new GmailMcpError("invalid_header", `invalid_header: media type ${mime.slice(0, 40)}`);
+  if (!RESTRICTED.test(mime)) throw new McpError("invalid_header", `invalid_header: media type ${mime.slice(0, 40)}`);
 }
 
 export function base64LineLength(n: number): number {
@@ -2068,7 +2067,7 @@ export function base64LinesTransform(): TransformStream<Uint8Array, Uint8Array> 
 `worker/src/mime/build.ts`:
 
 ```ts
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import { assertHeaderSafe } from "../policy/limits";
 import { b64url } from "../crypto/random";
 import {
@@ -2202,7 +2201,7 @@ export function buildMimeStream(o: MimeInput): { stream: ReadableStream<Uint8Arr
           }
           if (seen !== expected) {
             controller.error(
-              new GmailMcpError(
+              new McpError(
                 "handle_invalid",
                 `handle_invalid: ${current?.filename ?? "attachment"} yielded ${seen} encoded bytes, expected ${expected}`,
               ),
@@ -2239,7 +2238,7 @@ export function buildMimeStream(o: MimeInput): { stream: ReadableStream<Uint8Arr
 export async function buildMime(o: MimeInput): Promise<Uint8Array> {
   const { stream, length } = buildMimeStream(o);
   const out = new Uint8Array(await new Response(stream).arrayBuffer());
-  if (out.byteLength !== length) throw new GmailMcpError("internal", `mime length ${out.byteLength} != ${length}`);
+  if (out.byteLength !== length) throw new McpError("internal", `mime length ${out.byteLength} != ${length}`);
   return out;
 }
 
@@ -2305,7 +2304,7 @@ The intent hash is `sha256(JCS({ tool, v, account: alias, args }))` where `args`
 ```ts
 import { env } from "cloudflare:test";
 import { describe, it, expect, beforeAll } from "vitest";
-import { PendingApprovalResult } from "@gmail-mcp/shared/schemas";
+import { PendingApprovalResult } from "@zoho-mail-mcp/shared/schemas";
 import { FakeGoogle } from "./fake-google";
 import { seedUserAndAccount, seedAccessToken } from "./fixtures";
 import { testDeps, testEnv } from "./test-env";
@@ -2629,7 +2628,7 @@ describe("ask without URL elicitation", () => {
       account: "main",
       summary: "To: x@example.test",
     });
-    expect(body.approval.url).toBe(`https://gmail-mcp.example.workers.dev/approve/${body.action_id}`);
+    expect(body.approval.url).toBe(`https://zoho-mail-mcp.example.workers.dev/approve/${body.action_id}`);
     const row = (await getPending(env.DB, body.action_id, "tg"))!;
     expect(row.payload_json).toBe(`{"attachments":["${H("h3")}"],"to":["x@example.test"],"tool":"test_send","v":1}`);
     expect(row.intent_hash).toBe(i.intentHash);
@@ -2853,7 +2852,7 @@ export type PendingInsert = {
 
 export function createPendingStatement(db: D1Database, o: PendingInsert): D1PreparedStatement {
   if (new TextEncoder().encode(o.canonical).length > LIMITS.canonicalPayloadBytes) {
-    throw new GmailMcpError("limit_exceeded", "limit_exceeded: canonical payload > 1 MB");
+    throw new McpError("limit_exceeded", "limit_exceeded: canonical payload > 1 MB");
   }
   return db
     .prepare(
@@ -2933,14 +2932,14 @@ export async function listUploadHandles(
   const found = new Set(rows.results.map((r) => r.handle));
   const missing = o.handles.filter((h) => !found.has(h));
   if (missing.length > 0)
-    throw new GmailMcpError("handle_invalid", `handle_invalid: ${missing.join(", ")}`, { handles: missing });
+    throw new McpError("handle_invalid", `handle_invalid: ${missing.join(", ")}`, { handles: missing });
   return o.handles.map((h) => rows.results.find((r) => r.handle === h)!);
 }
 
 /** The bytes as a stream, so a 25 MB attachment is never held in the isolate at once. */
 export async function openStaged(env: Env, row: StagingRow): Promise<ReadableStream<Uint8Array>> {
   const obj = await env.STAGING.get(row.r2_key);
-  if (!obj) throw new GmailMcpError("handle_invalid", `handle_invalid: object missing for ${row.handle}`);
+  if (!obj) throw new McpError("handle_invalid", `handle_invalid: object missing for ${row.handle}`);
   return obj.body;
 }
 ```
@@ -2957,7 +2956,7 @@ export async function beginOperation(
   patch: { rfc822_message_id?: string } = {},
 ): Promise<void> {
   if (!(await transition(db, operationId, ["claimed"], "executing", patch))) {
-    throw new GmailMcpError("internal", `operation ${operationId} was not claimed`);
+    throw new McpError("internal", `operation ${operationId} was not claimed`);
   }
 }
 
@@ -3012,7 +3011,7 @@ export function approvalCodec(env: Env, principal: Principal): RequestStateCodec
 `worker/src/tools/accounts.ts`:
 
 ```ts
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Env } from "../env";
 import type { TrustContext } from "../policy/recipients";
 
@@ -3036,7 +3035,7 @@ type Row = {
 
 function toRef(row: Row): AccountRef {
   if (row.status !== "active") {
-    throw new GmailMcpError("account_needs_reconnect", `account_needs_reconnect: ${row.alias} is ${row.status}`, {
+    throw new McpError("account_needs_reconnect", `account_needs_reconnect: ${row.alias} is ${row.status}`, {
       alias: row.alias,
     });
   }
@@ -3062,7 +3061,7 @@ export async function resolveAccount(env: Env, userId: string, alias?: string): 
         .bind(userId)
         .first<Row>();
   if (!row)
-    throw new GmailMcpError(
+    throw new McpError(
       "account_not_found",
       alias ? `account_not_found: ${alias}` : "account_not_found: no default account",
     );
@@ -3073,7 +3072,7 @@ export async function accountById(env: Env, userId: string, accountId: string): 
   const row = await env.DB.prepare(`SELECT ${COLS} FROM accounts WHERE user_id = ? AND id = ?`)
     .bind(userId, accountId)
     .first<Row>();
-  if (!row) throw new GmailMcpError("account_not_found", "account_not_found");
+  if (!row) throw new McpError("account_not_found", "account_not_found");
   return toRef(row);
 }
 
@@ -3094,9 +3093,9 @@ export async function trustContext(env: Env, userId: string, acct: AccountRef): 
 
 ```ts
 import { inputRequired, type CallToolResult, type InputRequiredResult } from "@modelcontextprotocol/server";
-import type { Action, Modifier } from "@gmail-mcp/shared/actions";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
-import type { PendingApprovalResult } from "@gmail-mcp/shared/schemas";
+import type { Action, Modifier } from "@zoho-mail-mcp/shared/actions";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
+import type { PendingApprovalResult } from "@zoho-mail-mcp/shared/schemas";
 import type { Env } from "../env";
 import type { PendingRow } from "../approval/pending";
 import { connectUrl } from "../google/connect";
@@ -3111,10 +3110,8 @@ export function text(obj: unknown): CallToolResult {
 /** Every failure a tool reports is a structured, non-throwing result the model can read. */
 export function toolError(e: unknown): CallToolResult {
   const err =
-    e instanceof GmailMcpError
-      ? e
-      : new GmailMcpError("internal", "internal: the request failed before it could be classified");
-  if (!(e instanceof GmailMcpError)) console.error("tool failure", (e as Error)?.message ?? e);
+    e instanceof McpError ? e : new McpError("internal", "internal: the request failed before it could be classified");
+  if (!(e instanceof McpError)) console.error("tool failure", (e as Error)?.message ?? e);
   return {
     isError: true,
     content: [
@@ -3157,12 +3154,12 @@ export async function connectRequired(t: ToolContext, alias: string): Promise<To
   return text({ status: "connect_required", account: alias, url });
 }
 
-/** Wraps every tool body: GmailMcpError becomes a structured error result; needs_reconnect becomes the connect flow; anything else is logged and reported as internal. */
+/** Wraps every tool body: McpError becomes a structured error result; needs_reconnect becomes the connect flow; anything else is logged and reported as internal. */
 export async function guarded(t: ToolContext, fn: () => Promise<ToolResult>): Promise<ToolResult> {
   try {
     return await fn();
   } catch (e) {
-    if (e instanceof GmailMcpError && e.code === "account_needs_reconnect" && typeof e.details?.alias === "string")
+    if (e instanceof McpError && e.code === "account_needs_reconnect" && typeof e.details?.alias === "string")
       return connectRequired(t, e.details.alias);
     return toolError(e);
   }
@@ -3172,7 +3169,7 @@ export async function guarded(t: ToolContext, fn: () => Promise<ToolResult>): Pr
 `worker/src/tools/idempotency.ts`:
 
 ```ts
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Env } from "../env";
 import { getPending, type PendingRow } from "../approval/pending";
 import type { OperationRow } from "../operations/journal";
@@ -3275,10 +3272,7 @@ export async function replayFor(
   o: { tool: string; intentHash: string; alias: string; userId: string },
 ): Promise<Record<string, unknown> | "fresh"> {
   if (row.tool !== o.tool || row.intent_hash !== o.intentHash) {
-    throw new GmailMcpError(
-      "idempotency_conflict",
-      "idempotency_conflict: key previously used for a different request",
-    );
+    throw new McpError("idempotency_conflict", "idempotency_conflict: key previously used for a different request");
   }
   if (row.operation_id) {
     const op = await opRow(env.DB, row.operation_id);
@@ -3423,8 +3417,8 @@ export async function settleUnknown(db: D1Database, s: Settlement): Promise<void
 
 ```ts
 import { inputRequired, type ServerContext, type RequestStateCodec } from "@modelcontextprotocol/server";
-import type { Action, Modifier } from "@gmail-mcp/shared/actions";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import type { Action, Modifier } from "@zoho-mail-mcp/shared/actions";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Env } from "../env";
 import type { Deps } from "../deps";
 import type { Principal } from "../auth/principal";
@@ -3487,7 +3481,7 @@ export function registerExecutor(tool: string, version: number, fn: Executor): v
 }
 export function executorFor(tool: string): { fn: Executor; version: number } {
   const e = executors.get(tool);
-  if (!e) throw new GmailMcpError("internal", `no executor for ${tool}`);
+  if (!e) throw new McpError("internal", `no executor for ${tool}`);
   return e;
 }
 
@@ -3529,7 +3523,7 @@ const base = (
 async function canonicalPayload(payload: Record<string, unknown>): Promise<{ canonical: string; hash: string }> {
   const canonical = canonicalize(payload);
   if (new TextEncoder().encode(canonical).length > LIMITS.canonicalPayloadBytes) {
-    throw new GmailMcpError("limit_exceeded", "limit_exceeded: canonical payload > 1 MB");
+    throw new McpError("limit_exceeded", "limit_exceeded: canonical payload > 1 MB");
   }
   return { canonical, hash: await hashCanonical(canonical) };
 }
@@ -3562,7 +3556,7 @@ export async function runGated(t: ToolContext, input: GateInput): Promise<ToolRe
   });
   if (decision.level === "deny") {
     await auditIntent(db, { ...base(t, input), decision: "deny" });
-    throw new GmailMcpError("policy_denied", `policy_denied: ${input.action}`, { modifiers: input.modifiers });
+    throw new McpError("policy_denied", `policy_denied: ${input.action}`, { modifiers: input.modifiers });
   }
   const built = await input.build();
   const payload = { ...built.payload, tool: input.tool, v: input.version };
@@ -3659,7 +3653,7 @@ export async function runGated(t: ToolContext, input: GateInput): Promise<ToolRe
       // Distinguish a lost idempotency race from an unavailable handle by re-reading the key.
       const replay = await lostRace(t, input, e, true);
       if (replay) return replay;
-      throw new GmailMcpError("handle_reserved", "handle_reserved: one or more attachments are unavailable", {
+      throw new McpError("handle_reserved", "handle_reserved: one or more attachments are unavailable", {
         handles: built.handles,
       });
     }
@@ -3690,7 +3684,7 @@ async function lostRace(t: ToolContext, input: GateInput, e: unknown, quiet = fa
     }
   }
   if (quiet) return undefined as never;
-  throw new GmailMcpError("internal", `gate batch failed: ${String((e as Error).message ?? e)}`);
+  throw new McpError("internal", `gate batch failed: ${String((e as Error).message ?? e)}`);
 }
 
 async function ask(t: ToolContext, input: GateInput, row: PendingRow): Promise<ToolResult> {
@@ -3741,26 +3735,26 @@ export async function resumeGated(
         : {}),
       decision: "payload_mismatch",
     });
-    throw new GmailMcpError("payload_mismatch", `payload_mismatch: ${why}`);
+    throw new McpError("payload_mismatch", `payload_mismatch: ${why}`);
   };
   const s = o.state;
   if (s.v !== APPROVAL_STATE_VERSION || s.tool !== o.tool || s.account_id !== o.account.id)
     return mismatch("state does not belong to this call");
   const row = await getPending(db, s.pending_id, userId);
-  if (!row) throw new GmailMcpError("pending_not_approved", "pending_not_approved: unknown");
+  if (!row) throw new McpError("pending_not_approved", "pending_not_approved: unknown");
   if (row.intent_hash !== o.intentHash || s.intent_hash !== row.intent_hash) return mismatch("arguments changed", row);
 
   const answer = t.round.answer();
   if (answer === "decline" || answer === "cancel") {
     await cancelPending(db, { id: row.id, userId });
-    throw new GmailMcpError("pending_not_approved", `pending_not_approved: ${answer}d in the client`);
+    throw new McpError("pending_not_approved", `pending_not_approved: ${answer}d in the client`);
   }
   const deadline = Date.now() + t.deps.approvalWait.deadlineMs;
   for (;;) {
     const cur = await getPending(db, row.id, userId);
-    if (!cur) throw new GmailMcpError("pending_not_approved", "pending_not_approved: unknown");
+    if (!cur) throw new McpError("pending_not_approved", "pending_not_approved: unknown");
     if (cur.expires_at <= Date.now() && (cur.state === "pending" || cur.state === "approved"))
-      throw new GmailMcpError("pending_expired", "pending_expired");
+      throw new McpError("pending_expired", "pending_expired");
     switch (cur.state) {
       case "approved":
         return text(await executePending(t, cur.id));
@@ -3770,11 +3764,11 @@ export async function resumeGated(
         continue;
       case "executing":
       case "executed":
-        throw new GmailMcpError("pending_replayed", `pending_replayed: ${cur.state}`);
+        throw new McpError("pending_replayed", `pending_replayed: ${cur.state}`);
       case "expired":
-        throw new GmailMcpError("pending_expired", "pending_expired");
+        throw new McpError("pending_expired", "pending_expired");
       default:
-        throw new GmailMcpError("pending_not_approved", `pending_not_approved: ${cur.state}`);
+        throw new McpError("pending_not_approved", `pending_not_approved: ${cur.state}`);
     }
   }
 }
@@ -3822,9 +3816,9 @@ export async function runExecutor(t: ToolContext, run: ExecutorRun): Promise<Rec
           ?.state
       : null;
     const err =
-      e instanceof GmailMcpError
+      e instanceof McpError
         ? e
-        : new GmailMcpError("internal", "internal: the executor failed", {
+        : new McpError("internal", "internal: the executor failed", {
             cause: e instanceof Error ? e.message : String(e),
           });
     if (
@@ -3837,7 +3831,7 @@ export async function runExecutor(t: ToolContext, run: ExecutorRun): Promise<Rec
     }
     if (state === "executing") {
       await settleUnknown(db, { operationId: run.operationId, pendingId: run.pendingId, audit });
-      throw new GmailMcpError(
+      throw new McpError(
         "delivery_unknown",
         "delivery_unknown: The Gmail request may have succeeded. Do not retry automatically.",
         { operation_id: run.operationId, cause: err.message },
@@ -3870,7 +3864,7 @@ export async function runExecutor(t: ToolContext, run: ExecutorRun): Promise<Rec
     if (state === "claimed") {
       // The executor returned success without ever opening its operation: a programming error, made loud.
       await settleFailedSafe(db, { operationId: run.operationId, pendingId: run.pendingId, audit, error: "internal" });
-      throw new GmailMcpError("internal", `internal: ${run.tool} returned without opening its operation`);
+      throw new McpError("internal", `internal: ${run.tool} returned without opening its operation`);
     }
     console.error("settlement failed after Gmail success", run.operationId, (e as Error).message);
     result.local_settlement_failed = true;
@@ -3887,7 +3881,7 @@ export async function executePending(t: ToolContext, pendingId: string): Promise
   const db = t.env.DB;
   const userId = t.principal.userId;
   const before = await getPending(db, pendingId, userId);
-  if (!before) throw new GmailMcpError("pending_not_approved", "pending_not_approved: unknown");
+  if (!before) throw new McpError("pending_not_approved", "pending_not_approved: unknown");
   const account = await accountById(t.env, userId, before.account_id);
 
   const { operationId, pending } = await claimPending(db, { id: pendingId, userId });
@@ -3908,7 +3902,7 @@ export async function executePending(t: ToolContext, pendingId: string): Promise
 
   const refuse = async (code: "payload_mismatch" | "policy_denied", why: string, decision: string): Promise<never> => {
     await settleFailedSafe(db, { operationId, pendingId, audit, error: code, decision });
-    throw new GmailMcpError(code, `${code}: ${why}`);
+    throw new McpError(code, `${code}: ${why}`);
   };
   if (!payload || tool === "unknown") return refuse("payload_mismatch", "no tool in payload", "failed");
   const executor = executorFor(tool);
@@ -3958,8 +3952,8 @@ export function factsOf(p: Record<string, unknown>): AuditFacts {
 ```ts
 import { McpServer, type ServerContext } from "@modelcontextprotocol/server";
 import { z } from "zod";
-import { ACTIONS, DEFAULT_POLICY } from "@gmail-mcp/shared/actions";
-import { AccountAlias } from "@gmail-mcp/shared/schemas";
+import { ACTIONS, DEFAULT_POLICY } from "@zoho-mail-mcp/shared/actions";
+import { AccountAlias } from "@zoho-mail-mcp/shared/schemas";
 import type { Env } from "../env";
 import type { Deps } from "../deps";
 import type { Principal } from "../auth/principal";
@@ -4365,7 +4359,7 @@ describe("spam and trash", () => {
     const before = gm().requests.length;
     const r = await call("untrash_message", { account: "cold", message_id: "m1" });
     expect(r.result).toMatchObject({ status: "connect_required", account: "cold" });
-    expect(r.result.url).toMatch(/^https:\/\/gmail-mcp\.example\.workers\.dev\/connect\?alias=cold&e=/);
+    expect(r.result.url).toMatch(/^https:\/\/zoho-mail-mcp\.example\.workers\.dev\/connect\?alias=cold&e=/);
     expect(gm().requests.length).toBe(before);
   });
   it("Gmail's error is surfaced verbatim and the call is audited as failed", async () => {
@@ -4522,8 +4516,8 @@ export const DeleteLabelInput = z.object({ account: AccountAlias, label_id: Labe
 ```ts
 import type { McpServer, ServerContext, ToolAnnotations } from "@modelcontextprotocol/server";
 import type { z } from "zod";
-import type { Action, Modifier } from "@gmail-mcp/shared/actions";
-import type { InlineAttachment } from "@gmail-mcp/shared/schemas";
+import type { Action, Modifier } from "@zoho-mail-mcp/shared/actions";
+import type { InlineAttachment } from "@zoho-mail-mcp/shared/schemas";
 import type { AuditFacts } from "../audit/log";
 import type { Env } from "../env";
 import { canonicalize, hashCanonical } from "../crypto/canonical";
@@ -4632,7 +4626,7 @@ export async function callTool(
 
 ```ts
 import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import {
   ApplySensitiveMessageLabelInput,
   ApplySensitiveThreadLabelInput,
@@ -4646,7 +4640,7 @@ import {
   UnlabelThreadInput,
   UpdateLabelInput,
   UpdateMessageLabelsInput,
-} from "@gmail-mcp/shared/schemas";
+} from "@zoho-mail-mcp/shared/schemas";
 import type { Env } from "../env";
 import type { Deps } from "../deps";
 import { gmailJson } from "../google/gmail";
@@ -4735,8 +4729,7 @@ async function postThread(env: Env, deps: Deps, run: ExecRun, id: string, verb: 
 /** label_* and unlabel_* refuse TRASH and SPAM: those go through the sensitive tools, which say what they do. */
 function refuseSensitive(ids: string[]): void {
   const hit = ids.find((id) => SENSITIVE.has(id));
-  if (hit)
-    throw new GmailMcpError("forbidden", `forbidden: use apply_sensitive_* or the trash and spam tools for ${hit}`);
+  if (hit) throw new McpError("forbidden", `forbidden: use apply_sensitive_* or the trash and spam tools for ${hit}`);
 }
 const sensitiveModifiers = (ids: string[]): Plan["modifiers"] => (ids.some(isSystemLabel) ? ["+sensitive"] : []);
 
@@ -4999,7 +4992,7 @@ export function registerLabelTools(
   });
   const colourPair = (a: { text_color?: string; background_color?: string }) => {
     if ((a.text_color === undefined) !== (a.background_color === undefined))
-      throw new GmailMcpError("invalid_header", "invalid_header: text_color and background_color go together");
+      throw new McpError("invalid_header", "invalid_header: text_color and background_color go together");
   };
   defineTool(server, toolContext, env, {
     name: "create_label",
@@ -5017,7 +5010,7 @@ export function registerLabelTools(
     },
     execute: async (e, d, run) => {
       const p = CreateLabelInput.omit({ account: true }).parse(run.payload);
-      if (!run.operationId) throw new GmailMcpError("internal", "label.manage create runs with an operation");
+      if (!run.operationId) throw new McpError("internal", "label.manage create runs with an operation");
       // The one request that changes Gmail comes after the operation is executing, and there is no other.
       await beginOperation(e.DB, run.operationId);
       const label = await gmailJson<GmailLabel>(e, d, acct(run), {
@@ -5038,8 +5031,7 @@ export function registerLabelTools(
     action: "label.manage",
     journal: false,
     plan: async (_e, _t, _a, args) => {
-      if (isSystemLabel(args.label_id))
-        throw new GmailMcpError("forbidden", "forbidden: system labels cannot be changed");
+      if (isSystemLabel(args.label_id)) throw new McpError("forbidden", "forbidden: system labels cannot be changed");
       colourPair(args);
       const { account: _account, ...rest } = args;
       return simple({ op: "update", name: args.display_name ?? null, ...rest }, [], `Update label ${args.label_id}`, [
@@ -5066,8 +5058,7 @@ export function registerLabelTools(
     action: "label.manage",
     journal: false,
     plan: async (_e, _t, _a, args) => {
-      if (isSystemLabel(args.label_id))
-        throw new GmailMcpError("forbidden", "forbidden: system labels cannot be deleted");
+      if (isSystemLabel(args.label_id)) throw new McpError("forbidden", "forbidden: system labels cannot be deleted");
       return simple({ op: "delete", label_id: args.label_id }, [], `Delete label ${args.label_id}`, [args.label_id]);
     },
     execute: async (e, d, run) => {
@@ -5129,7 +5120,7 @@ Claude-Session: https://claude.ai/code/session_01NBfkjWcEGDFghet3APnUjU"
 ```ts
 import { env } from "cloudflare:test";
 import { describe, it, expect, beforeAll } from "vitest";
-import { StagingHandleResponse } from "@gmail-mcp/shared/schemas";
+import { StagingHandleResponse } from "@zoho-mail-mcp/shared/schemas";
 import { createWorker } from "../src/index";
 import { FakeGoogle } from "./fake-google";
 import { mintToken } from "./browser";
@@ -5426,7 +5417,7 @@ export const DownloadAttachmentInput = z
 
 ```ts
 import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import {
   DownloadAttachmentInput,
   GetDraftInput,
@@ -5436,7 +5427,7 @@ import {
   ListLabelsInput,
   SearchThreadsInput,
   type MessageFormat,
-} from "@gmail-mcp/shared/schemas";
+} from "@zoho-mail-mcp/shared/schemas";
 import type { Env } from "../env";
 import { fromB64url } from "../crypto/random";
 import { gmailJson } from "../google/gmail";
@@ -5654,10 +5645,9 @@ export function registerReadTools(server: McpServer, toolContext: (ctx: ServerCo
       const meta = p.attachment_id
         ? findAttachment(m, { attachmentId: p.attachment_id })
         : findAttachment(m, { partId: p.part_id! });
-      if (!meta)
-        throw new GmailMcpError("handle_invalid", `handle_invalid: no such attachment on message ${p.message_id}`);
+      if (!meta) throw new McpError("handle_invalid", `handle_invalid: no such attachment on message ${p.message_id}`);
       if (meta.size > LIMITS.stagedFileBytes)
-        throw new GmailMcpError(
+        throw new McpError(
           "limit_exceeded",
           `limit_exceeded: attachment is ${meta.size} bytes, ceiling ${LIMITS.stagedFileBytes}`,
         );
@@ -5668,11 +5658,11 @@ export function registerReadTools(server: McpServer, toolContext: (ctx: ServerCo
           path: `messages/${encodeURIComponent(p.message_id)}/attachments/${encodeURIComponent(meta.attachment_id)}`,
           retry: "safe",
         });
-        if (!body.data) throw new GmailMcpError("handle_invalid", "handle_invalid: attachment body empty");
+        if (!body.data) throw new McpError("handle_invalid", "handle_invalid: attachment body empty");
         bytes = fromB64url(body.data);
       } else {
         const data = partData(m, meta.part_id);
-        if (!data) throw new GmailMcpError("handle_invalid", "handle_invalid: inline part without data");
+        if (!data) throw new McpError("handle_invalid", "handle_invalid: inline part without data");
         bytes = fromB64url(data);
       }
       const row = await ingest(e, {
@@ -5815,7 +5805,7 @@ describe("sendMime", () => {
   it("small: media upload; the operation is executing with the Message-ID before the request opens; nothing settles here", async () => {
     const id = await op();
     const mid = messageIdFor(e, id);
-    expect(mid).toBe(`<${id}@gmail-mcp.example.workers.dev>`);
+    expect(mid).toBe(`<${id}@zoho-mail-mcp.example.workers.dev>`);
     let seenState: string | undefined;
     gm().before = async () => {
       seenState = (await opRow(id)).state;
@@ -6112,7 +6102,7 @@ export async function putResumable(
 `worker/src/operations/send.ts`:
 
 ```ts
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Deps } from "../deps";
 import type { Env } from "../env";
 import { gmailFetch, gmailJson, openResumableSession, putResumable, type Upload } from "../google/gmail";
@@ -6139,11 +6129,11 @@ export async function collect(stream: ReadableStream<Uint8Array>, length: number
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    if (o + value.byteLength > length) throw new GmailMcpError("internal", "mime stream longer than declared");
+    if (o + value.byteLength > length) throw new McpError("internal", "mime stream longer than declared");
     out.set(value, o);
     o += value.byteLength;
   }
-  if (o !== length) throw new GmailMcpError("internal", `mime stream was ${o} bytes, declared ${length}`);
+  if (o !== length) throw new McpError("internal", `mime stream was ${o} bytes, declared ${length}`);
   return out;
 }
 
@@ -6160,7 +6150,7 @@ async function upload(
   o: Body & { operationId: string; path: string; method: "POST" | "PUT"; contentType: string },
 ): Promise<Response> {
   if (o.length > GMAIL_SEND_MAX)
-    throw new GmailMcpError(
+    throw new McpError(
       "limit_exceeded",
       `limit_exceeded: message is ${o.length} bytes, Gmail's ceiling is ${GMAIL_SEND_MAX}`,
     );
@@ -6610,8 +6600,8 @@ export const UpdateDraftInput = z.object({
 `worker/src/tools/compose.ts`:
 
 ```ts
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
-import { MediaType, type InlineAttachment, type MessageFormat } from "@gmail-mcp/shared/schemas";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
+import { MediaType, type InlineAttachment, type MessageFormat } from "@zoho-mail-mcp/shared/schemas";
 import type { Env } from "../env";
 import type { Deps } from "../deps";
 import { sha256Hex } from "../crypto/canonical";
@@ -6638,12 +6628,12 @@ export type ComposeArgs = {
 /** Spec 2.7 and 3.8, before policy and before any row: addresses parse, headers are clean, sizes fit. */
 export function validateCompose(a: ComposeArgs): void {
   const all = [...a.to, ...a.cc, ...a.bcc];
-  if (all.length > 500) throw new GmailMcpError("limit_exceeded", `limit_exceeded: recipients ${all.length} > 500`);
+  if (all.length > 500) throw new McpError("limit_exceeded", `limit_exceeded: recipients ${all.length} > 500`);
   for (const r of all) parseAddress(r);
   if (a.subject !== undefined) assertHeaderSafe("subject", a.subject);
   const bodyBytes = utf8Length(a.body ?? "") + utf8Length(a.html_body ?? "");
   if (bodyBytes > LIMITS.bodyBytes)
-    throw new GmailMcpError("limit_exceeded", `limit_exceeded: body ${bodyBytes} > ${LIMITS.bodyBytes} bytes`);
+    throw new McpError("limit_exceeded", `limit_exceeded: body ${bodyBytes} > ${LIMITS.bodyBytes} bytes`);
 }
 
 export function senderFor(account: AccountRef, from?: string): string {
@@ -6651,7 +6641,7 @@ export function senderFor(account: AccountRef, from?: string): string {
   const norm = parseAddress(from).normalized;
   const allowed = [account.email, ...account.sendAs].map((s) => parseAddress(s).normalized);
   if (!allowed.includes(norm))
-    throw new GmailMcpError("invalid_address", `invalid_address: ${from} is not a verified sender on this account`);
+    throw new McpError("invalid_address", `invalid_address: ${from} is not a verified sender on this account`);
   return from;
 }
 
@@ -6679,7 +6669,7 @@ export async function decodeInline(inline: InlineAttachment[] | undefined): Prom
     MediaType.parse(i.mime);
     const projected = Math.floor((i.content_base64.length * 3) / 4) - 2;
     if (total + projected > LIMITS.inlineAttachmentBytes) {
-      throw new GmailMcpError(
+      throw new McpError(
         "limit_exceeded",
         `limit_exceeded: inline attachments exceed ${LIMITS.inlineAttachmentBytes} bytes`,
       );
@@ -6687,7 +6677,7 @@ export async function decodeInline(inline: InlineAttachment[] | undefined): Prom
     const bytes = decodeBase64(i.content_base64);
     total += bytes.byteLength;
     if (total > LIMITS.inlineAttachmentBytes) {
-      throw new GmailMcpError(
+      throw new McpError(
         "limit_exceeded",
         `limit_exceeded: inline attachments exceed ${LIMITS.inlineAttachmentBytes} bytes`,
       );
@@ -6751,7 +6741,7 @@ export async function attachmentsFor(
   for (const r of rows) assertNotBlocked(r.filename);
   const total = rows.reduce((n, r) => n + r.size, 0) + extraBytes;
   if (total > account.sendLimitBytes)
-    throw new GmailMcpError(
+    throw new McpError(
       "limit_exceeded",
       `limit_exceeded: attachments ${total} > send limit ${account.sendLimitBytes} bytes`,
     );
@@ -6808,7 +6798,7 @@ export async function fetchAttachmentBytes(
     path: `messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`,
     retry: "safe",
   });
-  if (!body.data) throw new GmailMcpError("handle_invalid", "handle_invalid: attachment body empty");
+  if (!body.data) throw new McpError("handle_invalid", "handle_invalid: attachment body empty");
   return fromB64url(body.data);
 }
 
@@ -6909,8 +6899,8 @@ Remove the private `getMessage` from `tools/read.ts` and import it from `./compo
 
 ```ts
 import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
-import { CreateDraftInput, UpdateDraftInput } from "@gmail-mcp/shared/schemas";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
+import { CreateDraftInput, UpdateDraftInput } from "@zoho-mail-mcp/shared/schemas";
 import type { Env } from "../env";
 import type { Deps } from "../deps";
 import { gmailJson } from "../google/gmail";
@@ -7011,7 +7001,7 @@ async function planCompose(
 
 async function executeDraft(env: Env, deps: Deps, run: ExecRun) {
   const p = run.payload as unknown as DraftPayload;
-  if (!run.operationId) throw new GmailMcpError("internal", "draft.write runs with an operation");
+  if (!run.operationId) throw new McpError("internal", "draft.write runs with an operation");
   const { body, length, rfc822MessageId } = await composeMime(env, deps, run, p, run.operationId);
   const d = await uploadDraft(env, deps, {
     userId: run.userId,
@@ -7312,7 +7302,7 @@ describe("send_message", () => {
       message: { id: expect.stringMatching(/^m/), thread_id: expect.any(String) },
     });
     const raw = lastRaw();
-    expect(raw).toContain(`Message-ID: <${r.result.operation_id}@gmail-mcp.example.workers.dev>`);
+    expect(raw).toContain(`Message-ID: <${r.result.operation_id}@zoho-mail-mcp.example.workers.dev>`);
     expect(raw).toContain("From: <uni@example.test>");
     expect(raw).toContain('To: "Prof" <prof@uni.test>');
     expect(raw).toContain("Subject: =?UTF-8?B?SGkg8J+agA==?=");
@@ -7325,7 +7315,7 @@ describe("send_message", () => {
       .first<any>();
     expect(op).toMatchObject({
       state: "executed",
-      rfc822_message_id: `<${r.result.operation_id}@gmail-mcp.example.workers.dev>`,
+      rfc822_message_id: `<${r.result.operation_id}@zoho-mail-mcp.example.workers.dev>`,
       gmail_result_id: r.result.message.id,
     });
     expect(JSON.parse(op.result_json)).toEqual({ gmail_result_id: r.result.message.id, message: r.result.message });
@@ -7618,9 +7608,9 @@ export const SendDraftInput = z.object({
 
 ```ts
 import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
-import type { Modifier } from "@gmail-mcp/shared/actions";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
-import { ForwardInput, ReplyInput, SendDraftInput, SendMessageInput } from "@gmail-mcp/shared/schemas";
+import type { Modifier } from "@zoho-mail-mcp/shared/actions";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
+import { ForwardInput, ReplyInput, SendDraftInput, SendMessageInput } from "@zoho-mail-mcp/shared/schemas";
 import type { Env } from "../env";
 import type { Deps } from "../deps";
 import { canonicalize, hashCanonical } from "../crypto/canonical";
@@ -7701,7 +7691,7 @@ async function planSend(
 ): Promise<Plan> {
   validateCompose(args);
   if (args.to.length + args.cc.length + args.bcc.length === 0)
-    throw new GmailMcpError("invalid_address", "invalid_address: at least one recipient is required");
+    throw new McpError("invalid_address", "invalid_address: at least one recipient is required");
   const from = senderFor(account, args.from);
   const given = args.attachments ?? [];
   const { rows } = await attachmentsFor(
@@ -7752,7 +7742,7 @@ async function planSend(
 
 async function executeSend(env: Env, deps: Deps, run: ExecRun) {
   const p = run.payload as unknown as SendPayload;
-  if (!run.operationId) throw new GmailMcpError("internal", "send runs with an operation");
+  if (!run.operationId) throw new McpError("internal", "send runs with an operation");
   const { body, length, rfc822MessageId } = await composeMime(env, deps, run, p, run.operationId);
   const m = await sendMime(env, deps, {
     userId: run.userId,
@@ -7923,7 +7913,7 @@ export function registerSendTools(server: McpServer, toolContext: (ctx: ServerCo
       };
     },
     execute: async (e, d, run) => {
-      if (!run.operationId) throw new GmailMcpError("internal", "send.draft runs with an operation");
+      if (!run.operationId) throw new McpError("internal", "send.draft runs with an operation");
       const stored = run.payload as { draft_id: string; rfc822_message_id: string | null; tool: string; v: number };
       // Spec 3.4 "one approval covers one action": the draft must still be what the owner approved.
       const fresh = {
@@ -7932,7 +7922,7 @@ export function registerSendTools(server: McpServer, toolContext: (ctx: ServerCo
         v: stored.v,
       };
       if ((await hashCanonical(canonicalize(fresh))) !== (await hashCanonical(canonicalize(run.payload)))) {
-        throw new GmailMcpError("payload_mismatch", "payload_mismatch: the draft changed after it was approved");
+        throw new McpError("payload_mismatch", "payload_mismatch: the draft changed after it was approved");
       }
       const m = await sendDraft(e, d, {
         userId: run.userId,
@@ -8053,7 +8043,7 @@ describe("modern era with elicitation.url", () => {
     });
     const url: string = first.inputRequired.inputRequests.approval.params.url;
     const id = url.split("/approve/")[1]!;
-    expect(url).toBe(`https://gmail-mcp.example.workers.dev/approve/${id}`);
+    expect(url).toBe(`https://zoho-mail-mcp.example.workers.dev/approve/${id}`);
     const state: string = first.inputRequired.requestState;
     expect(state).toMatch(/^v1\./);
     expect((await getPending(env.DB, id, "owner-sub"))!.state).toBe("pending");

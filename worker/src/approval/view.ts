@@ -1,4 +1,4 @@
-import { StagingHandle } from "@gmail-mcp/shared/schemas";
+import { StagingHandle } from "@zoho-mail-mcp/shared/schemas";
 
 /**
  * What the owner is shown before approving. One shape per action family; anything that does not fit

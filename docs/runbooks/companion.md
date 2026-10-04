@@ -22,7 +22,7 @@ node companion/src/cli.ts init \
 node companion/src/cli.ts login
 ```
 
-`init` creates the default writable root at `~/Downloads/Gmail MCP`. Pass `--write-root /absolute/path` to choose another directory. Read roots are optional. Roots must not overlap each other or the private configuration/state directories. Initialization refuses to replace existing configuration.
+`init` creates the default writable root at `~/Downloads/Mail`. Pass `--write-root /absolute/path` to choose another directory. Read roots are optional. Roots must not overlap each other or the private configuration/state directories. Initialization refuses to replace existing configuration.
 
 Login binds an ephemeral `127.0.0.1` listener before opening the browser. It validates PKCE state and the exact Worker issuer, then stores the staging credential in Keychain. The installed provider serves revocation at `/token`, as advertised in discovery.
 

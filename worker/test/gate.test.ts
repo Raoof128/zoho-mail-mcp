@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { describe, it, expect, beforeAll } from "vitest";
-import { PendingApprovalResult } from "@gmail-mcp/shared/schemas";
+import { PendingApprovalResult } from "@zoho-mail-mcp/shared/schemas";
 import { FakeGoogle } from "./fake-google";
 import { seedUserAndAccount, seedAccessToken } from "./fixtures";
 import { testDeps, testEnv } from "./test-env";
@@ -324,7 +324,7 @@ describe("ask without URL elicitation", () => {
       account: "main",
       summary: "To: x@example.test",
     });
-    expect(body.approval.url).toBe(`https://gmail-mcp.example.workers.dev/approve/${body.action_id}`);
+    expect(body.approval.url).toBe(`https://zoho-mail-mcp.example.workers.dev/approve/${body.action_id}`);
     const row = (await getPending(env.DB, body.action_id, "tg"))!;
     expect(row.payload_json).toBe(`{"attachments":["${H("h3")}"],"to":["x@example.test"],"tool":"test_send","v":1}`);
     expect(row.intent_hash).toBe(i.intentHash);

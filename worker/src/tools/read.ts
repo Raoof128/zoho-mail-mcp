@@ -1,5 +1,5 @@
 import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import {
   DownloadAttachmentInput,
   DownloadAttachmentPayload,
@@ -10,7 +10,7 @@ import {
   ListLabelsInput,
   SearchThreadsInput,
   type MessageFormat,
-} from "@gmail-mcp/shared/schemas";
+} from "@zoho-mail-mcp/shared/schemas";
 import type { Env } from "../env";
 import { fromB64url } from "../crypto/random";
 import { gmailJson } from "../google/gmail";
@@ -250,13 +250,13 @@ export function registerReadTools(server: McpServer, toolContext: (ctx: ServerCo
             const why = p.attachment_id
               ? "Gmail re-issues attachment ids on every fetch, so an id from an earlier read cannot resolve here; use part_id"
               : "no part with that id";
-            throw new GmailMcpError(
+            throw new McpError(
               "handle_invalid",
               `handle_invalid: no such attachment on message ${p.message_id}. ${why}. Available: ${available || "none"}`,
             );
           }
           if (meta.size > LIMITS.stagedFileBytes)
-            throw new GmailMcpError(
+            throw new McpError(
               "limit_exceeded",
               `limit_exceeded: attachment is ${meta.size} bytes, ceiling ${LIMITS.stagedFileBytes}`,
             );
@@ -267,11 +267,11 @@ export function registerReadTools(server: McpServer, toolContext: (ctx: ServerCo
               path: `messages/${encodeURIComponent(p.message_id)}/attachments/${encodeURIComponent(meta.attachment_id)}`,
               retry: "safe",
             });
-            if (!body.data) throw new GmailMcpError("handle_invalid", "handle_invalid: attachment body empty");
+            if (!body.data) throw new McpError("handle_invalid", "handle_invalid: attachment body empty");
             bytes = fromB64url(body.data);
           } else {
             const data = partData(m, meta.part_id);
-            if (!data) throw new GmailMcpError("handle_invalid", "handle_invalid: inline part without data");
+            if (!data) throw new McpError("handle_invalid", "handle_invalid: inline part without data");
             bytes = fromB64url(data);
           }
           const row = await ingest(e, {

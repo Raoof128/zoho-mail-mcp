@@ -89,7 +89,7 @@ describe("buildMime", () => {
     cc: [],
     bcc: ["hidden@example.test"],
     subject: "Thesis 🚀",
-    messageId: "<op_x@gmail-mcp.example.workers.dev>",
+    messageId: "<op_x@zoho-mail-mcp.example.workers.dev>",
     date: new Date("2026-09-10T00:00:00Z"),
   };
   const att = (filename: string, mime: string, bytes: Uint8Array) => ({
@@ -109,7 +109,7 @@ describe("buildMime", () => {
     expect(headers).toContain("To: <a@example.test>, =?UTF-8?B?Wm/Dqw==?= <zoe@example.test>");
     expect(headers).toContain("Bcc: <hidden@example.test>");
     expect(headers).toContain("Subject: =?UTF-8?B?VGhlc2lzIPCfmoA=?=");
-    expect(headers).toContain("Message-ID: <op_x@gmail-mcp.example.workers.dev>");
+    expect(headers).toContain("Message-ID: <op_x@zoho-mail-mcp.example.workers.dev>");
     expect(headers).toContain("Date: Thu, 10 Sep 2026 00:00:00 GMT");
     expect(headers).toContain("MIME-Version: 1.0");
     expect(headers).toContain("Content-Type: text/plain; charset=UTF-8");

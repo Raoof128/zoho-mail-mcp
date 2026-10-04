@@ -125,7 +125,7 @@ describe("tokens at the routes", () => {
               grant: { clientId: "c", props: { sub, email: "o@x" } },
             }),
         },
-        WORKER_HOSTNAME: "gmail-mcp.example.workers.dev",
+        WORKER_HOSTNAME: "zoho-mail-mcp.example.workers.dev",
       }) as never;
     const req = new Request(`${HOST}/mcp`, { headers: { authorization: "Bearer a:b:c" } });
     const bad = await requireScope(req, stub(["staging"], "owner-sub"), "mcp");

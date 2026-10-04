@@ -218,7 +218,7 @@ page. It exposes `list_roots`, `stage_file` and `save_attachment`, and refuses o
 
 A save that loses the exclusive rename holds its reservation against a 25 MiB budget until the helper
 collects the leftover temporary. When the collector cannot verify what it would remove, that charge stays
-and every later save answers `spool_budget`. `gmail-mcp-companion debt` lists whatever is charged with
+and every later save answers `spool_budget`. `zoho-mail-mcp-companion debt` lists whatever is charged with
 the remedy that fits it, and `debt --scope SCOPE --release HANDLE` clears a charge in the one state where
 a human safely can. Releasing repairs accounting only: the receipt still says `publication_unknown`,
 because dropping a charge learns nothing about the destination.

@@ -1,6 +1,6 @@
 import { createLocalJWKSet, jwtVerify, type JSONWebKeySet } from "jose";
 import { z } from "zod";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Deps } from "../deps";
 import type { Env } from "../env";
 
@@ -71,9 +71,9 @@ export async function exchangeCode(
     code: o.code,
     redirect_uri: o.redirectUri,
   });
-  if (!res.ok) throw new GmailMcpError("internal", `google token endpoint ${res.status}`);
+  if (!res.ok) throw new McpError("internal", `google token endpoint ${res.status}`);
   const parsed = TokenResponse.safeParse(await res.json().catch(() => null));
-  if (!parsed.success) throw new GmailMcpError("internal", "google token endpoint returned an unexpected body");
+  if (!parsed.success) throw new McpError("internal", "google token endpoint returned an unexpected body");
   return parsed.data;
 }
 
@@ -85,19 +85,19 @@ export async function refreshAccessToken(
   const res = await tokenPost(env, deps, { grant_type: "refresh_token", refresh_token: refreshToken });
   if (res.ok) {
     const parsed = RefreshResponse.safeParse(await res.json().catch(() => null));
-    if (!parsed.success) throw new GmailMcpError("internal", "google refresh returned an unexpected body");
+    if (!parsed.success) throw new McpError("internal", "google refresh returned an unexpected body");
     return parsed.data;
   }
   const body = (await res.json().catch(() => ({}))) as { error?: string };
   if (res.status === 400 && body.error === "invalid_grant") return "invalid_grant";
-  throw new GmailMcpError("internal", `google refresh ${res.status}`);
+  throw new McpError("internal", `google refresh ${res.status}`);
 }
 
 async function jwks(deps: Deps): Promise<ReturnType<typeof createLocalJWKSet>> {
   // Fetched per verification rather than cached in the isolate: logins are rare, and a stale cache
   // across a key rotation is a worse failure than one extra request.
   const res = await deps.googleFetch(GOOGLE.jwksUrl);
-  if (!res.ok) throw new GmailMcpError("internal", `google jwks ${res.status}`);
+  if (!res.ok) throw new McpError("internal", `google jwks ${res.status}`);
   return createLocalJWKSet(await res.json<JSONWebKeySet>());
 }
 
@@ -122,13 +122,13 @@ export async function verifyIdToken(
     if (typeof payload.sub !== "string" || typeof payload.email !== "string") throw new Error("claims");
     return { sub: payload.sub, email: payload.email.toLowerCase() };
   } catch (e) {
-    throw new GmailMcpError("unauthorized", `id_token rejected: ${(e as Error).message}`);
+    throw new McpError("unauthorized", `id_token rejected: ${(e as Error).message}`);
   }
 }
 
 export async function fetchSendAs(deps: Deps, accessToken: string): Promise<string[]> {
   const res = await deps.googleFetch(GOOGLE.sendAsUrl, { headers: { authorization: `Bearer ${accessToken}` } });
-  if (!res.ok) throw new GmailMcpError("internal", `sendAs ${res.status}`);
+  if (!res.ok) throw new McpError("internal", `sendAs ${res.status}`);
   const body = await res.json<{ sendAs?: { sendAsEmail: string; verificationStatus?: string }[] }>();
   return (body.sendAs ?? [])
     .filter((s) => s.verificationStatus === "accepted" || s.verificationStatus === undefined)

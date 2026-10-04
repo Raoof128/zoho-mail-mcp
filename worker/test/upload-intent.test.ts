@@ -4,7 +4,7 @@ import { seedUserAndAccount } from "./fixtures";
 import { ensureTransfer } from "../src/staging/transfers";
 import { setPolicy } from "../src/policy/engine";
 import { approvePending } from "../src/approval/pending";
-import type { TransferIntent } from "@gmail-mcp/shared/staging";
+import type { TransferIntent } from "@zoho-mail-mcp/shared/staging";
 const user = "intent-owner";
 const p = { userId: user, email: "test@example.test", scope: "staging" as const };
 const input = (letter: string): TransferIntent => ({

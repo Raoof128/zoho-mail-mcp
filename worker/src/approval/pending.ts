@@ -1,5 +1,5 @@
-import type { Action, Modifier } from "@gmail-mcp/shared/actions";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import type { Action, Modifier } from "@zoho-mail-mcp/shared/actions";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import { canonicalize, hashCanonical } from "../crypto/canonical";
 import { randomId } from "../crypto/random";
 import { LIMITS } from "../policy/limits";
@@ -47,7 +47,7 @@ export type PendingInsert = {
 
 export function createPendingStatement(db: D1Database, o: PendingInsert): D1PreparedStatement {
   if (new TextEncoder().encode(o.canonical).length > LIMITS.canonicalPayloadBytes) {
-    throw new GmailMcpError("limit_exceeded", "limit_exceeded: canonical payload > 1 MB");
+    throw new McpError("limit_exceeded", "limit_exceeded: canonical payload > 1 MB");
   }
   return db
     .prepare(

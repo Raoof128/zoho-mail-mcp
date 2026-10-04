@@ -1,6 +1,6 @@
 import { inputRequired, type ServerContext, type RequestStateCodec } from "@modelcontextprotocol/server";
-import type { Action, Modifier } from "@gmail-mcp/shared/actions";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import type { Action, Modifier } from "@zoho-mail-mcp/shared/actions";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Env } from "../env";
 import type { Deps } from "../deps";
 import type { Principal } from "../auth/principal";
@@ -66,7 +66,7 @@ export function registerExecutor(tool: string, version: number, fn: Executor): v
 }
 export function executorFor(tool: string): { fn: Executor; version: number } {
   const e = executors.get(tool);
-  if (!e) throw new GmailMcpError("internal", `no executor for ${tool}`);
+  if (!e) throw new McpError("internal", `no executor for ${tool}`);
   return e;
 }
 
@@ -111,7 +111,7 @@ const base = (
 async function canonicalPayload(payload: Record<string, unknown>): Promise<{ canonical: string; hash: string }> {
   const canonical = canonicalize(payload);
   if (new TextEncoder().encode(canonical).length > LIMITS.canonicalPayloadBytes) {
-    throw new GmailMcpError("limit_exceeded", "limit_exceeded: canonical payload > 1 MB");
+    throw new McpError("limit_exceeded", "limit_exceeded: canonical payload > 1 MB");
   }
   return { canonical, hash: await hashCanonical(canonical) };
 }
@@ -165,7 +165,7 @@ export async function runGated(t: ToolContext, input: GateInput): Promise<ToolRe
   });
   if (decision.level === "deny") {
     await auditIntent(db, { ...base(t, input), decision: "deny" });
-    throw new GmailMcpError("policy_denied", `policy_denied: ${input.action}`, { modifiers: input.modifiers });
+    throw new McpError("policy_denied", `policy_denied: ${input.action}`, { modifiers: input.modifiers });
   }
   const built = await input.build();
   const payload: Record<string, unknown> = { ...built.payload, tool: input.tool, v: input.version };
@@ -262,7 +262,7 @@ export async function runGated(t: ToolContext, input: GateInput): Promise<ToolRe
       // Distinguish a lost idempotency race from an unavailable handle by re-reading the key.
       const replay = await lostRace(t, input, e, true);
       if (replay) return replay;
-      throw new GmailMcpError("handle_reserved", "handle_reserved: one or more attachments are unavailable", {
+      throw new McpError("handle_reserved", "handle_reserved: one or more attachments are unavailable", {
         handles: built.handles,
       });
     }
@@ -293,7 +293,7 @@ async function lostRace(t: ToolContext, input: GateInput, e: unknown, quiet = fa
     }
   }
   if (quiet) return undefined as never;
-  throw new GmailMcpError("internal", `gate batch failed: ${String((e as Error).message ?? e)}`);
+  throw new McpError("internal", `gate batch failed: ${String((e as Error).message ?? e)}`);
 }
 
 async function ask(t: ToolContext, input: GateInput, row: PendingRow): Promise<ToolResult> {
@@ -342,14 +342,14 @@ export async function resumeGated(
       ...(row ? { action: row.action, modifiers: JSON.parse(row.modifiers) as Modifier[], pendingId: row.id } : {}),
       decision: "payload_mismatch",
     });
-    throw new GmailMcpError("payload_mismatch", `payload_mismatch: ${why}`);
+    throw new McpError("payload_mismatch", `payload_mismatch: ${why}`);
   };
   const s = o.state;
   if (s.v !== APPROVAL_STATE_VERSION || s.tool !== o.tool || s.account_id !== o.account.id)
     return mismatch("state does not belong to this call");
   const row = await getPending(db, s.pending_id, userId);
   if (!row)
-    throw new GmailMcpError(
+    throw new McpError(
       "pending_not_approved",
       "pending_not_approved: no pending action with that id; it was never created, or it expired and was purged",
     );
@@ -358,18 +358,18 @@ export async function resumeGated(
   const answer = t.round.answer();
   if (answer === "decline" || answer === "cancel") {
     await cancelPending(db, { id: row.id, userId });
-    throw new GmailMcpError("pending_not_approved", `pending_not_approved: ${answer}d in the client`);
+    throw new McpError("pending_not_approved", `pending_not_approved: ${answer}d in the client`);
   }
   const deadline = Date.now() + t.deps.approvalWait.deadlineMs;
   for (;;) {
     const cur = await getPending(db, row.id, userId);
     if (!cur)
-      throw new GmailMcpError(
+      throw new McpError(
         "pending_not_approved",
         "pending_not_approved: no pending action with that id; it was never created, or it expired and was purged",
       );
     if (cur.expires_at <= Date.now() && (cur.state === "pending" || cur.state === "approved"))
-      throw new GmailMcpError("pending_expired", "pending_expired");
+      throw new McpError("pending_expired", "pending_expired");
     switch (cur.state) {
       case "approved":
         return text(await executePending(t, cur.id));
@@ -379,11 +379,11 @@ export async function resumeGated(
         continue;
       case "executing":
       case "executed":
-        throw new GmailMcpError("pending_replayed", `pending_replayed: ${cur.state}`);
+        throw new McpError("pending_replayed", `pending_replayed: ${cur.state}`);
       case "expired":
-        throw new GmailMcpError("pending_expired", "pending_expired");
+        throw new McpError("pending_expired", "pending_expired");
       default:
-        throw new GmailMcpError("pending_not_approved", `pending_not_approved: ${cur.state}`);
+        throw new McpError("pending_not_approved", `pending_not_approved: ${cur.state}`);
     }
   }
 }
@@ -453,7 +453,7 @@ export async function runExecutor(t: ToolContext, run: ExecutorRun): Promise<Rec
           ...sendResult.parse(JSON.parse(winner!.result_json!)),
         };
       }
-      throw new GmailMcpError(
+      throw new McpError(
         "delivery_unknown",
         "delivery_unknown: The Gmail request may have succeeded. Do not retry automatically.",
         { operation_id: recovery.id },
@@ -464,9 +464,9 @@ export async function runExecutor(t: ToolContext, run: ExecutorRun): Promise<Rec
           ?.state
       : null;
     const err =
-      e instanceof GmailMcpError
+      e instanceof McpError
         ? e
-        : new GmailMcpError("internal", "internal: the executor failed", {
+        : new McpError("internal", "internal: the executor failed", {
             cause: e instanceof Error ? e.message : String(e),
           });
     if (
@@ -479,7 +479,7 @@ export async function runExecutor(t: ToolContext, run: ExecutorRun): Promise<Rec
     }
     if (state === "executing") {
       await settleUnknown(db, { operationId: run.operationId, pendingId: run.pendingId, audit });
-      throw new GmailMcpError(
+      throw new McpError(
         "delivery_unknown",
         "delivery_unknown: The Gmail request may have succeeded. Do not retry automatically.",
         { operation_id: run.operationId, cause: err.message },
@@ -493,7 +493,7 @@ export async function runExecutor(t: ToolContext, run: ExecutorRun): Promise<Rec
     const receipt = sendResult.safeParse(out);
     if (!receipt.success) {
       await recordFailure(t.env, recovery.id);
-      throw new GmailMcpError(
+      throw new McpError(
         "delivery_unknown",
         "delivery_unknown: Invalid delivery receipt. Do not retry automatically.",
         { operation_id: recovery.id },
@@ -545,7 +545,7 @@ export async function runExecutor(t: ToolContext, run: ExecutorRun): Promise<Rec
     if (state === "claimed") {
       // The executor returned success without ever opening its operation: a programming error, made loud.
       await settleFailedSafe(db, { operationId: run.operationId, pendingId: run.pendingId, audit, error: "internal" });
-      throw new GmailMcpError("internal", `internal: ${run.tool} returned without opening its operation`);
+      throw new McpError("internal", `internal: ${run.tool} returned without opening its operation`);
     }
     console.error("settlement failed after Gmail success", run.operationId, (e as Error).message);
     result.local_settlement_failed = true;
@@ -563,13 +563,13 @@ export async function executePending(t: ToolContext, pendingId: string): Promise
   const userId = t.principal.userId;
   const before = await getPending(db, pendingId, userId);
   if (!before)
-    throw new GmailMcpError(
+    throw new McpError(
       "pending_not_approved",
       "pending_not_approved: no pending action with that id; it was never created, or it expired and was purged",
     );
   // Staging approvals are consumed only by the owner-bound transfer protocol.
   if (before.action === "attachment.stage_upload")
-    throw new GmailMcpError("pending_not_approved", "pending_not_approved: resume this transfer through the companion");
+    throw new McpError("pending_not_approved", "pending_not_approved: resume this transfer through the companion");
   const account = await accountById(t.env, userId, before.account_id);
 
   const { operationId, pending } = await claimPending(db, { id: pendingId, userId });
@@ -590,7 +590,7 @@ export async function executePending(t: ToolContext, pendingId: string): Promise
 
   const refuse = async (code: "payload_mismatch" | "policy_denied", why: string, decision: string): Promise<never> => {
     await settleFailedSafe(db, { operationId, pendingId, audit, error: code, decision });
-    throw new GmailMcpError(code, `${code}: ${why}`);
+    throw new McpError(code, `${code}: ${why}`);
   };
   if (!payload || tool === "unknown") return refuse("payload_mismatch", "no tool in payload", "failed");
   const executor = executorFor(tool);

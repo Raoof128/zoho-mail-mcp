@@ -141,7 +141,7 @@ Source: `docs/superpowers/plans/2026-09-13-gmail-mcp-plan-5-recovery-and-release
 Create `worker/migrations/0005_operation_recovery.sql`, `worker/src/operations/recovery-types.ts`, `worker/test/recovery-state.test.ts`. Modify `worker/src/tools/settle.ts`, `worker/src/tools/gate.ts`, `worker/src/operations/journal.ts`. The appendix supplies full migration SQL and exported types.
 
 - [ ] Write a fixture that applies migrations 0001–0004, seeds two owners/accounts and protocol-1 operations using existing fixture helpers; assert queries for new protocol columns fail before the migration.
-- [ ] Run `npm test -w @gmail-mcp/worker -- --run test/recovery-state.test.ts`; retain the initial failure.
+- [ ] Run `npm test -w @zoho-mail-mcp/worker -- --run test/recovery-state.test.ts`; retain the initial failure.
 - [ ] Install the appendix SQL as migration 0005. Copy shared types using the exact registry names `send_message`, `reply`, `forward`, `send_draft`.
 - [ ] Add tests for composite ownership, metadata 8,193-byte refusal, malformed JSON, wrong horizon/retention, protocol downgrade and outcome without permit. Test an entire failing batch rolls back permit and all effects. Enforce purpose, owner/account, one operation transition and one matching audit per permit; cover wrong-purpose and repeated same-batch writes. Preserve immutable staging operation linkage after release so cleanup still requires a storage permit.
 - [ ] Introduce permit insertion/deletion around all protocol-2 success/failure/outcome transactions; leave protocol-1 operations on legacy behavior. No standalone permit write may exist.
@@ -169,7 +169,7 @@ Token acquisition and outbound request admission are distinct checks. A concurre
 Create `worker/src/google/resumable.ts`, `worker/test/resumable.test.ts`; modify existing `worker/src/google/gmail.ts` to use the validator before the original PUT obtains a token. The appendix defines the interface and design section 5 supplies the entire allowed grammar.
 
 - [ ] Add raw traversal/encoded separator/unknown query/duplicate key/case/userinfo/foreign host tests and the exact two send prefixes plus original-upload draft create/update endpoints. Original-upload endpoint binding is mandatory; draft sessions still cannot enroll recovery. Assert rejection before token lookup. Copy both documented Range forms into fixtures.
-- [ ] Capture red tests with `npm test -w @gmail-mcp/worker -- --run test/resumable.test.ts`.
+- [ ] Capture red tests with `npm test -w @zoho-mail-mcp/worker -- --run test/resumable.test.ts`.
 - [ ] Implement raw validation before `new URL`, then verify parsed components. No generalized URL/path builder accepts user input. Thread the typed UploadEndpoint from the existing upload caller into original PUT validation; test >5 MiB draft create/update still work and cannot enroll recovery.
 - [ ] Implement zero-body status headers and bounded send-v1 final response parsing. For 308, parse only the two specified Range forms; reject overflow/regression and return awaiting_final when offset equals total.
 - [ ] Run tests for expired session, all bytes without final receipt, missing range after progress, malformed body, 308 + valid Range without Location → valid incomplete status; distinguish 308 from other redirects. Test 404 and 410 separately → unknown/key held. No status case admits a byte continuation.

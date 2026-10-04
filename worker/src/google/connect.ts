@@ -1,5 +1,5 @@
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
-import { AccountAlias } from "@gmail-mcp/shared/schemas";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
+import { AccountAlias } from "@zoho-mail-mcp/shared/schemas";
 import type { Env } from "../env";
 import { auditIntent, auditOutcome } from "../audit/log";
 import { signToken, verifyToken } from "../crypto/hmac";
@@ -108,7 +108,7 @@ export async function upsertAccount(
   } catch (e) {
     const msg = String((e as Error).message);
     if (/accounts\.user_id, accounts\.alias/.test(msg))
-      throw new GmailMcpError("invalid_address", `alias in use: ${o.alias}`);
+      throw new McpError("invalid_address", `alias in use: ${o.alias}`);
     // Lost a race with a concurrent connect of the same Google account or the same default slot:
     // the row now exists, so this becomes a reconnect; a lost default slot becomes a non-default insert.
     if (/accounts\.user_id, accounts\.google_sub/.test(msg)) return upsertAccount(env, o);
@@ -254,7 +254,7 @@ export const connectRoutes: Route[] = [
             accessExpiresAt: Date.now() + tokens.expires_in * 1000 - 60_000,
           });
         } catch (e) {
-          if (e instanceof GmailMcpError && e.message.startsWith("alias in use")) {
+          if (e instanceof McpError && e.message.startsWith("alias in use")) {
             return fail(
               "Alias in use",
               `<p>The alias <code>${escapeHtml(st.alias!)}</code> already names a different Google account. Pick another.</p>`,

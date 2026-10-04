@@ -289,12 +289,12 @@ export function testEnv(overrides: Partial<Record<keyof Env, unknown>> = {}): En
     GOOGLE_CLIENT_SECRET: "gsecret",
     OWNER_GOOGLE_SUBS: "owner-sub",
     OWNER_EMAILS: "owner@example.test",
-    WORKER_HOSTNAME: "gmail-mcp.example.workers.dev",
+    WORKER_HOSTNAME: "zoho-mail-mcp.example.workers.dev",
     ...overrides,
   } as Env;
 }
 
-export const HOST = "https://gmail-mcp.example.workers.dev";
+export const HOST = "https://zoho-mail-mcp.example.workers.dev";
 ```
 
 - [x] **Step 7: run, expect PASS**
@@ -790,11 +790,11 @@ describe("csrf", () => {
   });
   it("origin must match the worker hostname when present and is required on POST", () => {
     const mk = (origin?: string, method = "POST") =>
-      new Request("https://gmail-mcp.example.workers.dev/approve/x", {
+      new Request("https://zoho-mail-mcp.example.workers.dev/approve/x", {
         method,
         headers: origin ? { origin } : {},
       });
-    expect(checkOrigin(mk("https://gmail-mcp.example.workers.dev"), env)).toBe(true);
+    expect(checkOrigin(mk("https://zoho-mail-mcp.example.workers.dev"), env)).toBe(true);
     expect(checkOrigin(mk("https://evil.test"), env)).toBe(false);
     expect(checkOrigin(mk("null"), env)).toBe(false);
     expect(checkOrigin(mk(undefined), env)).toBe(false);
@@ -974,9 +974,9 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 - Produces: `GOOGLE = { issuer: "https://accounts.google.com", authUrl: "https://accounts.google.com/o/oauth2/v2/auth", tokenUrl: "https://oauth2.googleapis.com/token", jwksUrl: "https://www.googleapis.com/oauth2/v3/certs", revokeUrl: "https://oauth2.googleapis.com/revoke", sendAsUrl: "https://gmail.googleapis.com/gmail/v1/users/me/settings/sendAs" }`. `LOGIN_SCOPES = "openid email profile"`, `CONNECT_SCOPES = "https://www.googleapis.com/auth/gmail.modify openid email"`.
   `buildAuthUrl(env, o: { redirectUri; scope; state; nonce; offline: boolean; loginHint?: string }): string`.
-  `exchangeCode(env, deps, o: { code; redirectUri }): Promise<TokenResponse>` where `TokenResponse` is validated with zod (`access_token` non-empty, `token_type` `Bearer` case-insensitively, `expires_in` an integer in `1..86400`, `id_token` non-empty, `scope` a string, `refresh_token` an optional non-empty string); a 2xx body that fails validation throws `GmailMcpError("internal")` like a non-2xx.
+  `exchangeCode(env, deps, o: { code; redirectUri }): Promise<TokenResponse>` where `TokenResponse` is validated with zod (`access_token` non-empty, `token_type` `Bearer` case-insensitively, `expires_in` an integer in `1..86400`, `id_token` non-empty, `scope` a string, `refresh_token` an optional non-empty string); a 2xx body that fails validation throws `McpError("internal")` like a non-2xx.
   `refreshAccessToken(env, deps, refreshToken): Promise<{ access_token: string; expires_in: number } | "invalid_grant">`.
-  `verifyIdToken(env, deps, idToken, o: { nonce: string }): Promise<{ sub: string; email: string }>` (jose `jwtVerify` with a JWKS from `deps.googleFetch`, issuer accepts both `https://accounts.google.com` and `accounts.google.com`, audience `GOOGLE_CLIENT_ID`, `maxTokenAge` 10 minutes and `clockTolerance` 60 s so `iat` is checked and not just present, `nonce` equal, `email_verified === true`; throws `GmailMcpError("unauthorized")` otherwise).
+  `verifyIdToken(env, deps, idToken, o: { nonce: string }): Promise<{ sub: string; email: string }>` (jose `jwtVerify` with a JWKS from `deps.googleFetch`, issuer accepts both `https://accounts.google.com` and `accounts.google.com`, audience `GOOGLE_CLIENT_ID`, `maxTokenAge` 10 minutes and `clockTolerance` 60 s so `iat` is checked and not just present, `nonce` equal, `email_verified === true`; throws `McpError("unauthorized")` otherwise).
   `fetchSendAs(deps, accessToken): Promise<string[]>` (verified addresses only, lower-cased).
   `revokeToken(deps, token): Promise<void>` (best effort, ignores non-2xx).
   Test fake: `class FakeGoogle { fetch: typeof fetch; issue(o: { sub; email; nonce; aud?; iss?; exp?; emailVerified? }): Promise<string>; codes: Map<code, { sub; email; nonce; refresh: string; scope }>; grantCode(o): string; revoked: Set<string>; refreshTokens: Map<string, "ok" | "invalid_grant">; sendAs: string[]; tokenCalls: number }`.
@@ -1219,7 +1219,7 @@ Expected: FAIL, cannot find module `../src/google/oidc`. If `jose` itself fails 
 ```ts
 import { createLocalJWKSet, jwtVerify, type JSONWebKeySet } from "jose";
 import { z } from "zod";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Deps } from "../deps";
 import type { Env } from "../env";
 
@@ -1290,9 +1290,9 @@ export async function exchangeCode(
     code: o.code,
     redirect_uri: o.redirectUri,
   });
-  if (!res.ok) throw new GmailMcpError("internal", `google token endpoint ${res.status}`);
+  if (!res.ok) throw new McpError("internal", `google token endpoint ${res.status}`);
   const parsed = TokenResponse.safeParse(await res.json().catch(() => null));
-  if (!parsed.success) throw new GmailMcpError("internal", "google token endpoint returned an unexpected body");
+  if (!parsed.success) throw new McpError("internal", "google token endpoint returned an unexpected body");
   return parsed.data;
 }
 
@@ -1304,19 +1304,19 @@ export async function refreshAccessToken(
   const res = await tokenPost(env, deps, { grant_type: "refresh_token", refresh_token: refreshToken });
   if (res.ok) {
     const parsed = RefreshResponse.safeParse(await res.json().catch(() => null));
-    if (!parsed.success) throw new GmailMcpError("internal", "google refresh returned an unexpected body");
+    if (!parsed.success) throw new McpError("internal", "google refresh returned an unexpected body");
     return parsed.data;
   }
   const body = (await res.json().catch(() => ({}))) as { error?: string };
   if (res.status === 400 && body.error === "invalid_grant") return "invalid_grant";
-  throw new GmailMcpError("internal", `google refresh ${res.status}`);
+  throw new McpError("internal", `google refresh ${res.status}`);
 }
 
 async function jwks(deps: Deps): Promise<ReturnType<typeof createLocalJWKSet>> {
   // Fetched per verification rather than cached in the isolate: logins are rare, and a stale cache
   // across a key rotation is a worse failure than one extra request.
   const res = await deps.googleFetch(GOOGLE.jwksUrl);
-  if (!res.ok) throw new GmailMcpError("internal", `google jwks ${res.status}`);
+  if (!res.ok) throw new McpError("internal", `google jwks ${res.status}`);
   return createLocalJWKSet(await res.json<JSONWebKeySet>());
 }
 
@@ -1341,13 +1341,13 @@ export async function verifyIdToken(
     if (typeof payload.sub !== "string" || typeof payload.email !== "string") throw new Error("claims");
     return { sub: payload.sub, email: payload.email.toLowerCase() };
   } catch (e) {
-    throw new GmailMcpError("unauthorized", `id_token rejected: ${(e as Error).message}`);
+    throw new McpError("unauthorized", `id_token rejected: ${(e as Error).message}`);
   }
 }
 
 export async function fetchSendAs(deps: Deps, accessToken: string): Promise<string[]> {
   const res = await deps.googleFetch(GOOGLE.sendAsUrl, { headers: { authorization: `Bearer ${accessToken}` } });
-  if (!res.ok) throw new GmailMcpError("internal", `sendAs ${res.status}`);
+  if (!res.ok) throw new McpError("internal", `sendAs ${res.status}`);
   const body = await res.json<{ sendAs?: { sendAsEmail: string; verificationStatus?: string }[] }>();
   return (body.sendAs ?? [])
     .filter((s) => s.verificationStatus === "accepted" || s.verificationStatus === undefined)
@@ -1674,7 +1674,7 @@ export async function purgeStates(db: D1Database, now: number, limit = 200): Pro
 `worker/src/web/router.ts`:
 
 ```ts
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Deps } from "../deps";
 import type { Env } from "../env";
 import { checkOrigin, csrfToken, verifyCsrf } from "./csrf";
@@ -1689,11 +1689,11 @@ const FORM_CAP = 64 * 1024;
 
 export async function readForm(request: Request): Promise<URLSearchParams> {
   const len = Number(request.headers.get("content-length") ?? "0");
-  if (len > FORM_CAP) throw new GmailMcpError("limit_exceeded", "form too large");
+  if (len > FORM_CAP) throw new McpError("limit_exceeded", "form too large");
   // Decoded from bytes rather than request.text(): the runtime warns that text() on a urlencoded
   // body may corrupt it, and the byte count is what the cap is about anyway.
   const text = new TextDecoder().decode(await request.arrayBuffer());
-  if (text.length > FORM_CAP) throw new GmailMcpError("limit_exceeded", "form too large");
+  if (text.length > FORM_CAP) throw new McpError("limit_exceeded", "form too large");
   return new URLSearchParams(text);
 }
 
@@ -1786,7 +1786,7 @@ export function webHandler(deps: Deps, routes: Route[]): FetchHandler {
         try {
           return await r.handler({ request, env, deps, url, params: m.slice(1) });
         } catch (e) {
-          if (e instanceof GmailMcpError) {
+          if (e instanceof McpError) {
             return htmlResponse("Error", `<p>${e.code}</p>`, null, STATUS[e.code] ?? 400);
           }
           console.error("web handler failure", (e as Error).message);
@@ -2391,7 +2391,7 @@ describe("tokens at the routes", () => {
               grant: { clientId: "c", props: { sub, email: "o@x" } },
             }),
         },
-        WORKER_HOSTNAME: "gmail-mcp.example.workers.dev",
+        WORKER_HOSTNAME: "zoho-mail-mcp.example.workers.dev",
       }) as never;
     const req = new Request(`${HOST}/mcp`, { headers: { authorization: "Bearer a:b:c" } });
     const bad = await requireScope(req, stub(["staging"], "owner-sub"), "mcp");
@@ -2603,7 +2603,7 @@ export async function registerCompanionClient(env: Env, source: HelpersSource): 
   const helpers: OAuthHelpers = "createClient" in source ? source : getOAuthApi(source.oauthOptions(env), env);
   try {
     const client = await helpers.createClient({
-      clientName: "gmail-mcp-companion",
+      clientName: "zoho-mail-mcp-companion",
       redirectUris: ["http://127.0.0.1/callback", "http://localhost/callback"],
       tokenEndpointAuthMethod: "none",
       grantTypes: ["authorization_code", "refresh_token"],
@@ -2890,7 +2890,7 @@ export const authorizeRoutes: Route[] = [
 `worker/src/staging/routes.ts`:
 
 ```ts
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Deps } from "../deps";
 import { requireScope } from "../auth/principal";
 import type { FetchHandler } from "../web/router";
@@ -2927,7 +2927,7 @@ export function stagingApiHandler(_deps: Deps): FetchHandler {
         }
         return new Response("method not allowed", { status: 405 });
       } catch (e) {
-        if (e instanceof GmailMcpError && (e.code === "handle_invalid" || e.code === "handle_expired")) {
+        if (e instanceof McpError && (e.code === "handle_invalid" || e.code === "handle_expired")) {
           return new Response(e.code, { status: 404 });
         }
         throw e;
@@ -3082,7 +3082,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 **Interfaces:**
 
 - `connectRedirectUri(env)` = `https://<host>/connect/callback`. `connectElicitationId(env, userId, alias): Promise<string>` (purpose `gmail-mcp:connect:v1`, fields `[userId, alias]`, 15 min). `connectUrl(env, userId, alias): Promise<string>` = `https://<host>/connect?alias=<alias>&e=<id>`.
-- `upsertAccount(env, o: { userId; alias; googleSub; email; sendAs: string[]; scopes: string; refreshToken: string; accessToken: string; accessExpiresAt: number }): Promise<{ id: string; created: boolean }>`. The row is matched on `(user_id, google_sub)`; an existing row keeps its alias and id, takes the new tokens and bumps `credential_version`; a new row takes the alias and becomes default when the owner has no default, decided inside the INSERT by a subquery so two first connections cannot both claim it. A concurrent insert for the same `google_sub` loses on the unique index and retries as an update. Alias in use by a different `google_sub` throws `GmailMcpError("invalid_address", "alias in use")` (reusing the code family; the page renders it as a 409). The callback verifies the granted scope contains `gmail.modify` before persisting, and if anything after the code exchange fails on a brand-new grant, it revokes the new refresh token at Google before rendering the error.
+- `upsertAccount(env, o: { userId; alias; googleSub; email; sendAs: string[]; scopes: string; refreshToken: string; accessToken: string; accessExpiresAt: number }): Promise<{ id: string; created: boolean }>`. The row is matched on `(user_id, google_sub)`; an existing row keeps its alias and id, takes the new tokens and bumps `credential_version`; a new row takes the alias and becomes default when the owner has no default, decided inside the INSERT by a subquery so two first connections cannot both claim it. A concurrent insert for the same `google_sub` loses on the unique index and retries as an update. Alias in use by a different `google_sub` throws `McpError("invalid_address", "alias in use")` (reusing the code family; the page renders it as a 409). The callback verifies the granted scope contains `gmail.modify` before persisting, and if anything after the code exchange fails on a brand-new grant, it revokes the new refresh token at Google before rendering the error.
 - Routes: `GET /connect?alias=&e=` and `GET /connect/callback`. KV state record `OidcState` with `purpose: "connect"`, `alias`, `userId`, `sessionIdHash`.
 - Tools: `connect_account({ alias })` returns `{ status: "connect_required", account: alias, url }`; `open_policy_editor({})` returns `{ url: "https://<host>/policy" }`. Both audit an `intent` row with decision `browser`.
 
@@ -3319,10 +3319,10 @@ describe("connect an account", () => {
     const parsed = JSON.parse(call.json.result.content[0].text);
     expect(parsed.status).toBe("connect_required");
     expect(parsed.url).toMatch(
-      /^https:\/\/gmail-mcp\.example\.workers\.dev\/connect\?alias=work&e=\d+\.[A-Za-z0-9_-]{43}$/,
+      /^https:\/\/zoho-mail-mcp\.example\.workers\.dev\/connect\?alias=work&e=\d+\.[A-Za-z0-9_-]{43}$/,
     );
     const pol = await rpc(worker, e, t.accessToken, "tools/call", { name: "open_policy_editor", arguments: {} }, 6);
-    expect(JSON.parse(pol.json.result.content[0].text).url).toBe("https://gmail-mcp.example.workers.dev/policy");
+    expect(JSON.parse(pol.json.result.content[0].text).url).toBe("https://zoho-mail-mcp.example.workers.dev/policy");
     const rows = await env.DB.prepare(
       "SELECT tool, action, decision FROM audit_log WHERE user_id = 'owner-sub' AND tool IN ('connect_account','open_policy_editor')",
     ).all<any>();
@@ -3344,8 +3344,8 @@ Expected: FAIL, cannot find module `../src/google/connect`.
 `worker/src/google/connect.ts`:
 
 ```ts
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
-import { AccountAlias } from "@gmail-mcp/shared/schemas";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
+import { AccountAlias } from "@zoho-mail-mcp/shared/schemas";
 import type { Env } from "../env";
 import { auditIntent, auditOutcome } from "../audit/log";
 import { signToken, verifyToken } from "../crypto/hmac";
@@ -3454,7 +3454,7 @@ export async function upsertAccount(
   } catch (e) {
     const msg = String((e as Error).message);
     if (/accounts\.user_id, accounts\.alias/.test(msg))
-      throw new GmailMcpError("invalid_address", `alias in use: ${o.alias}`);
+      throw new McpError("invalid_address", `alias in use: ${o.alias}`);
     // Lost a race with a concurrent connect of the same Google account or the same default slot:
     // the row now exists, so this becomes a reconnect; a lost default slot becomes a non-default insert.
     if (/accounts\.user_id, accounts\.google_sub/.test(msg)) return upsertAccount(env, o);
@@ -3600,7 +3600,7 @@ export const connectRoutes: Route[] = [
             accessExpiresAt: Date.now() + tokens.expires_in * 1000 - 60_000,
           });
         } catch (e) {
-          if (e instanceof GmailMcpError && e.message.startsWith("alias in use")) {
+          if (e instanceof McpError && e.message.startsWith("alias in use")) {
             return fail(
               "Alias in use",
               `<p>The alias <code>${escapeHtml(st.alias!)}</code> already names a different Google account. Pick another.</p>`,
@@ -3704,7 +3704,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Interfaces:**
 
-- `getAccessToken(env, deps, userId, accountId): Promise<string>`. Ownership is in the query. `status != 'active'` throws `GmailMcpError("account_needs_reconnect")`. A cached token with more than 60 s left is returned after a lazy re-encrypt if its key id is not current. Otherwise the refresh token is decrypted and used; `"invalid_grant"` flips the row to `needs_reconnect`, wipes the access token columns and throws `account_needs_reconnect`; success stores the new access token encrypted with the current key and refreshes `last_refresh_at`; a refresh token under an old key id is re-encrypted in the same update. Every write carries `WHERE id = ? AND user_id = ? AND status = 'active' AND credential_version = ?` with the version read at the start, and a write that changes zero rows means a revoke or reconnect happened meanwhile: the function then throws `account_needs_reconnect` and never returns the token it obtained.
+- `getAccessToken(env, deps, userId, accountId): Promise<string>`. Ownership is in the query. `status != 'active'` throws `McpError("account_needs_reconnect")`. A cached token with more than 60 s left is returned after a lazy re-encrypt if its key id is not current. Otherwise the refresh token is decrypted and used; `"invalid_grant"` flips the row to `needs_reconnect`, wipes the access token columns and throws `account_needs_reconnect`; success stores the new access token encrypted with the current key and refreshes `last_refresh_at`; a refresh token under an old key id is re-encrypted in the same update. Every write carries `WHERE id = ? AND user_id = ? AND status = 'active' AND credential_version = ?` with the version read at the start, and a write that changes zero rows means a revoke or reconnect happened meanwhile: the function then throws `account_needs_reconnect` and never returns the token it obtained.
 - `revokeAccount(env, deps, userId, accountId): Promise<void>`: local first. One UPDATE sets `status = 'revoked'`, `is_default = 0`, bumps `credential_version` and nulls both ciphertexts, returning the old refresh ciphertext with `RETURNING`; only then is Google's revoke endpoint called, best effort. Google being unreachable cannot keep an account alive.
 
 - [x] **Step 1 (RED): tests**
@@ -3875,7 +3875,7 @@ Run: `cd worker && npx vitest run test/tokens.test.ts`
 `worker/src/google/tokens.ts`:
 
 ```ts
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Deps } from "../deps";
 import type { Env } from "../env";
 import { Keyring } from "../crypto/keyring";
@@ -3902,11 +3902,11 @@ async function load(db: D1Database, userId: string, accountId: string): Promise<
     )
     .bind(accountId, userId)
     .first<TokenRow>();
-  if (!row) throw new GmailMcpError("account_not_found", "account_not_found");
+  if (!row) throw new McpError("account_not_found", "account_not_found");
   return row;
 }
 
-const reconnect = (why: string) => new GmailMcpError("account_needs_reconnect", `account_needs_reconnect: ${why}`);
+const reconnect = (why: string) => new McpError("account_needs_reconnect", `account_needs_reconnect: ${why}`);
 
 /**
  * Every credential write is conditional on the version read at the start and on the row still being
@@ -4029,7 +4029,7 @@ export async function revokeAccount(env: Env, deps: Deps, userId: string, accoun
     }
     return;
   }
-  throw new GmailMcpError("internal", "revoke lost three races with concurrent credential writes");
+  throw new McpError("internal", "revoke lost three races with concurrent credential writes");
 }
 ```
 
@@ -4338,7 +4338,7 @@ Run: `cd worker && npx vitest run test/approve.test.ts`
 `worker/src/approval/view.ts`:
 
 ```ts
-import { StagingHandle } from "@gmail-mcp/shared/schemas";
+import { StagingHandle } from "@zoho-mail-mcp/shared/schemas";
 
 /**
  * What the owner is shown before approving. One shape per action family; anything that does not fit
@@ -5049,7 +5049,7 @@ ${rows.join("\n")}
 <h2>Local companion</h2>
 ${
   companion
-    ? `<p>Client id for <code>gmail-mcp-companion login</code>:</p><pre>${escapeHtml(companion)}</pre>`
+    ? `<p>Client id for <code>zoho-mail-mcp-companion login</code>:</p><pre>${escapeHtml(companion)}</pre>`
     : `<form method="post" action="/accounts"><input type="hidden" name="csrf" value="${escapeHtml(companionCsrf)}"><input type="hidden" name="account" value="companion"><button name="op" value="register_companion">Register the companion client</button></form>`
 }
 </section>`;
@@ -5198,7 +5198,7 @@ export const accountsRoutes: Route[] = [
 ];
 ```
 
-`parseAddress` and `toAsciiDomain` in `policy/recipients.ts` throw `GmailMcpError("invalid_address")` on garbage (Plan 1 Task 6), and `isTrusted` compares allowlist entries through the same two functions, which is why the page stores their output and nothing else. If `toAsciiDomain` accepts `foo..com` or `-foo.com` today, tighten it there (empty labels, leading or trailing hyphens, labels over 63 bytes, total over 253) with a test in `recipients.test.ts`, so the page and the trust rules move together.
+`parseAddress` and `toAsciiDomain` in `policy/recipients.ts` throw `McpError("invalid_address")` on garbage (Plan 1 Task 6), and `isTrusted` compares allowlist entries through the same two functions, which is why the page stores their output and nothing else. If `toAsciiDomain` accepts `foo..com` or `-foo.com` today, tighten it there (empty labels, leading or trailing hyphens, labels over 63 bytes, total over 253) with a test in `recipients.test.ts`, so the page and the trust rules move together.
 
 Mount `accountsRoutes`.
 
@@ -5241,7 +5241,7 @@ import { FakeGoogle } from "./fake-google";
 import { testEnv } from "./test-env";
 import { seedUserAndAccount } from "./fixtures";
 import { applyPolicyEdit, effectiveLevel } from "../src/policy/engine";
-import type { Level } from "@gmail-mcp/shared/actions";
+import type { Level } from "@zoho-mail-mcp/shared/actions";
 
 let g: FakeGoogle;
 let worker: ReturnType<typeof createWorker>;
@@ -5440,7 +5440,7 @@ and let `revokeOtherSessions` call it.
 `worker/src/web/pages/policy.ts`:
 
 ```ts
-import { ACTIONS, DEFAULT_POLICY, LEVELS, type Action, type Level } from "@gmail-mcp/shared/actions";
+import { ACTIONS, DEFAULT_POLICY, LEVELS, type Action, type Level } from "@zoho-mail-mcp/shared/actions";
 import type { Env } from "../../env";
 import { applyPolicyEdit, type PolicyChange } from "../../policy/engine";
 import { BLOCKED_EXTENSIONS } from "../../policy/limits";
@@ -5676,8 +5676,8 @@ describe("audit page", () => {
 `worker/src/web/pages/audit.ts`:
 
 ```ts
-import { ACTIONS } from "@gmail-mcp/shared/actions";
-import { AccountAlias } from "@gmail-mcp/shared/schemas";
+import { ACTIONS } from "@zoho-mail-mcp/shared/actions";
+import { AccountAlias } from "@zoho-mail-mcp/shared/schemas";
 import { escapeHtml } from "../html";
 import { type Route, page, requireSession } from "../router";
 

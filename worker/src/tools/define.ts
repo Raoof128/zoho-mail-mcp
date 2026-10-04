@@ -1,4 +1,4 @@
-import { DEFAULT_POLICY } from "@gmail-mcp/shared/actions";
+import { DEFAULT_POLICY } from "@zoho-mail-mcp/shared/actions";
 import type {
   AnyToolHandler,
   McpServer,
@@ -7,8 +7,8 @@ import type {
   ToolAnnotations,
 } from "@modelcontextprotocol/server";
 import type { z } from "zod";
-import type { Action, Modifier } from "@gmail-mcp/shared/actions";
-import type { InlineAttachment } from "@gmail-mcp/shared/schemas";
+import type { Action, Modifier } from "@zoho-mail-mcp/shared/actions";
+import type { InlineAttachment } from "@zoho-mail-mcp/shared/schemas";
 import type { AuditFacts } from "../audit/log";
 import type { Env } from "../env";
 import { canonicalize, hashCanonical } from "../crypto/canonical";

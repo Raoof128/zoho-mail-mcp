@@ -1,7 +1,7 @@
-import { DEFAULT_POLICY, raise, type Action, type Level, type Modifier } from "@gmail-mcp/shared/actions";
+import { DEFAULT_POLICY, raise, type Action, type Level, type Modifier } from "@zoho-mail-mcp/shared/actions";
 import { auditStatement, type AuditBase } from "../audit/log";
 import { revokeOtherSessionsStatement } from "../web/session";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 
 export type Decision = { level: Level; base: Level; modifiers: Modifier[] };
 
@@ -10,7 +10,7 @@ export async function assertAccount(db: D1Database, userId: string, accountId: s
     .prepare("SELECT id FROM accounts WHERE id = ? AND user_id = ?")
     .bind(accountId, userId)
     .first<{ id: string }>();
-  if (!row) throw new GmailMcpError("account_not_found", "account_not_found");
+  if (!row) throw new McpError("account_not_found", "account_not_found");
 }
 
 /** The level in force, and whether the owner chose it (a policy row) or it is the built-in default. */

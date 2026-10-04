@@ -19,7 +19,7 @@ export interface IntentResults {
 export async function openIntentResults(
   authorizationId: string,
   preparationCommitment: string,
-  storeRoot = join(homedir(), ".gmail-mcp-qualification-intents"),
+  storeRoot = join(homedir(), ".zoho-mail-mcp-qualification-intents"),
 ): Promise<IntentResults> {
   const journal = await openIntentJournal(authorizationId, preparationCommitment, storeRoot);
   const root = await privateDirectory(storeRoot);

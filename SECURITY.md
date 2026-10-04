@@ -123,7 +123,7 @@ capacity until the owner acts, and deleting their evidence by hand to free capac
 that turns recoverable debt into a permanent charge.
 
 On the local side there is now a way out that does not require deleting evidence.
-`gmail-mcp-companion debt` lists every charged receipt with the remedy that fits it, and
+`zoho-mail-mcp-companion debt` lists every charged receipt with the remedy that fits it, and
 `debt --scope SCOPE --release HANDLE` clears a charge in exactly one state: a `publication_unknown`
 receipt whose temporary is provably absent, where ENOENT is the only outcome that counts as proof. A
 release repairs accounting and nothing else, so the receipt still reads `publication_unknown` afterwards.

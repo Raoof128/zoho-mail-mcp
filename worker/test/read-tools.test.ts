@@ -1,6 +1,6 @@
 import { env } from "cloudflare:test";
 import { describe, it, expect, beforeAll } from "vitest";
-import { StagingHandleResponse } from "@gmail-mcp/shared/schemas";
+import { StagingHandleResponse } from "@zoho-mail-mcp/shared/schemas";
 import { createWorker } from "../src/index";
 import { FakeGoogle } from "./fake-google";
 import { mintToken } from "./browser";

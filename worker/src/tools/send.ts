@@ -1,7 +1,7 @@
 import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
-import type { Modifier } from "@gmail-mcp/shared/actions";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
-import { ForwardInput, ReplyInput, SendDraftInput, SendMessageInput } from "@gmail-mcp/shared/schemas";
+import type { Modifier } from "@zoho-mail-mcp/shared/actions";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
+import { ForwardInput, ReplyInput, SendDraftInput, SendMessageInput } from "@zoho-mail-mcp/shared/schemas";
 import type { Env } from "../env";
 import type { Deps } from "../deps";
 import { canonicalize, hashCanonical } from "../crypto/canonical";
@@ -82,7 +82,7 @@ async function planSend(
 ): Promise<Plan> {
   validateCompose(args);
   if (args.to.length + args.cc.length + args.bcc.length === 0)
-    throw new GmailMcpError("invalid_address", "invalid_address: at least one recipient is required");
+    throw new McpError("invalid_address", "invalid_address: at least one recipient is required");
   const from = senderFor(account, args.from);
   const given = args.attachments ?? [];
   const { rows } = await attachmentsFor(
@@ -135,7 +135,7 @@ async function planSend(
 
 async function executeSend(env: Env, deps: Deps, run: ExecRun) {
   const p = run.payload as unknown as SendPayload;
-  if (!run.operationId) throw new GmailMcpError("internal", "send runs with an operation");
+  if (!run.operationId) throw new McpError("internal", "send runs with an operation");
   const { body, length, rfc822MessageId } = await composeMime(env, deps, run, p, run.operationId);
   const m = await sendMime(env, deps, {
     userId: run.userId,
@@ -207,7 +207,7 @@ async function carryFrom(
         .filter((a) => a.attachment_id !== null)
         .map((a) => `${a.part_id} (${a.filename})`)
         .join(", ");
-      throw new GmailMcpError(
+      throw new McpError(
         "handle_invalid",
         `handle_invalid: message ${ref.message_id} has no attachable part ${ref.part_id}. Available: ${available || "none"}`,
       );
@@ -364,7 +364,7 @@ export function registerSendTools(server: McpServer, toolContext: (ctx: ServerCo
       };
     },
     execute: async (e, d, run) => {
-      if (!run.operationId) throw new GmailMcpError("internal", "send.draft runs with an operation");
+      if (!run.operationId) throw new McpError("internal", "send.draft runs with an operation");
       const stored = run.payload as { draft_id: string; rfc822_message_id: string | null; tool: string; v: number };
       // Spec 3.4 "one approval covers one action": the draft must still be what the owner approved.
       const fresh = {
@@ -373,7 +373,7 @@ export function registerSendTools(server: McpServer, toolContext: (ctx: ServerCo
         v: stored.v,
       };
       if ((await hashCanonical(canonicalize(fresh))) !== (await hashCanonical(canonicalize(run.payload)))) {
-        throw new GmailMcpError("payload_mismatch", "payload_mismatch: the draft changed after it was approved");
+        throw new McpError("payload_mismatch", "payload_mismatch: the draft changed after it was approved");
       }
       const m = await sendDraft(e, d, {
         userId: run.userId,

@@ -1,6 +1,6 @@
 import { storageBatch } from "./settlement";
-import { STAGING_LIMITS as L } from "@gmail-mcp/shared/staging";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { STAGING_LIMITS as L } from "@zoho-mail-mcp/shared/staging";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Env } from "../env";
 import type { StagingRow } from "./store";
 import { randomId } from "../crypto/random";
@@ -20,9 +20,9 @@ export async function leasedDownload(
     )
     .bind(handle, user)
     .first<StagingRow>();
-  if (!row) throw new GmailMcpError("handle_invalid", "handle_invalid");
+  if (!row) throw new McpError("handle_invalid", "handle_invalid");
   if (row.expires_at <= now || row.created_at + 60 * 60_000 <= now)
-    throw new GmailMcpError("handle_expired", "handle_expired");
+    throw new McpError("handle_expired", "handle_expired");
   const until = Math.min(now + L.leaseMs, row.created_at + 60 * 60_000);
   const id = randomId("ds");
   try {
@@ -57,7 +57,7 @@ export async function leasedDownload(
       ],
     );
   } catch {
-    throw new GmailMcpError("handle_invalid", "handle_invalid: download admission lost or busy");
+    throw new McpError("handle_invalid", "handle_invalid: download admission lost or busy");
   }
   const release = async () => {
     await storageBatch(
@@ -82,7 +82,7 @@ export async function leasedDownload(
   }
   if (!object) {
     await release();
-    throw new GmailMcpError("handle_invalid", "handle_invalid: object missing");
+    throw new McpError("handle_invalid", "handle_invalid: object missing");
   }
   const reader = (object.body as ReadableStream<Uint8Array>).getReader();
   let done = false;

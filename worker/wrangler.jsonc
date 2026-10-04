@@ -1,11 +1,11 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "gmail-mcp",
+  "name": "zoho-mail-mcp",
   "main": "src/index.ts",
   "compatibility_date": "2026-09-01",
   "compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
   "vars": {
-    "WORKER_HOSTNAME": "gmail-mcp.example.workers.dev",
+    "WORKER_HOSTNAME": "zoho-mail-mcp.example.workers.dev",
     "RECOVERY_PROFILE": "normal",
     "RESTORE_GENERATION": "uninstalled",
   },

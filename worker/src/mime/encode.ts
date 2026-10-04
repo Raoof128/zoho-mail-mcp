@@ -1,4 +1,4 @@
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import { assertHeaderSafe } from "../policy/limits";
 import { parseAddress } from "../policy/recipients";
 
@@ -113,15 +113,14 @@ export function foldHeader(name: string, value: string): string {
   lines.push(cur);
   for (const l of lines) {
     if (l.length > HARD_LINE)
-      throw new GmailMcpError("invalid_header", `invalid_header: ${name} line exceeds ${HARD_LINE} characters`);
+      throw new McpError("invalid_header", `invalid_header: ${name} line exceeds ${HARD_LINE} characters`);
   }
   return lines.join("\r\n") + "\r\n";
 }
 
 const RESTRICTED = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]{0,126}$/;
 export function assertMediaType(mime: string): void {
-  if (!RESTRICTED.test(mime))
-    throw new GmailMcpError("invalid_header", `invalid_header: media type ${mime.slice(0, 40)}`);
+  if (!RESTRICTED.test(mime)) throw new McpError("invalid_header", `invalid_header: media type ${mime.slice(0, 40)}`);
 }
 
 export function base64LineLength(n: number): number {

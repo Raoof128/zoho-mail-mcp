@@ -1,5 +1,5 @@
 import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import {
   ApplySensitiveMessageLabelInput,
   ApplySensitiveThreadLabelInput,
@@ -13,7 +13,7 @@ import {
   UnlabelThreadInput,
   UpdateLabelInput,
   UpdateMessageLabelsInput,
-} from "@gmail-mcp/shared/schemas";
+} from "@zoho-mail-mcp/shared/schemas";
 import type { Env } from "../env";
 import type { Deps } from "../deps";
 import { gmailJson } from "../google/gmail";
@@ -114,8 +114,7 @@ async function postThread(env: Env, deps: Deps, run: ExecRun, id: string, verb: 
 /** label_* and unlabel_* refuse TRASH and SPAM: those go through the sensitive tools, which say what they do. */
 function refuseSensitive(ids: string[]): void {
   const hit = ids.find((id) => SENSITIVE.has(id));
-  if (hit)
-    throw new GmailMcpError("forbidden", `forbidden: use apply_sensitive_* or the trash and spam tools for ${hit}`);
+  if (hit) throw new McpError("forbidden", `forbidden: use apply_sensitive_* or the trash and spam tools for ${hit}`);
 }
 const sensitiveModifiers = (ids: string[]): Plan["modifiers"] => (ids.some(isSystemLabel) ? ["+sensitive"] : []);
 
@@ -386,7 +385,7 @@ export function registerLabelTools(
   });
   const colourPair = (a: { text_color?: string | undefined; background_color?: string | undefined }) => {
     if ((a.text_color === undefined) !== (a.background_color === undefined))
-      throw new GmailMcpError("invalid_header", "invalid_header: text_color and background_color go together");
+      throw new McpError("invalid_header", "invalid_header: text_color and background_color go together");
   };
   defineTool(server, toolContext, env, {
     name: "create_label",
@@ -404,7 +403,7 @@ export function registerLabelTools(
     },
     execute: async (e, d, run) => {
       const p = CreateLabelInput.omit({ account: true }).parse(run.payload);
-      if (!run.operationId) throw new GmailMcpError("internal", "label.manage create runs with an operation");
+      if (!run.operationId) throw new McpError("internal", "label.manage create runs with an operation");
       // The one request that changes Gmail comes after the operation is executing, and there is no other.
       await beginOperation(e.DB, run.operationId);
       const label = await gmailJson<GmailLabel>(e, d, acct(run), {
@@ -425,8 +424,7 @@ export function registerLabelTools(
     action: "label.manage",
     journal: false,
     plan: (_e, _t, _a, args) => {
-      if (isSystemLabel(args.label_id))
-        throw new GmailMcpError("forbidden", "forbidden: system labels cannot be changed");
+      if (isSystemLabel(args.label_id)) throw new McpError("forbidden", "forbidden: system labels cannot be changed");
       colourPair(args);
       const { account: _account, ...rest } = args;
       return simple({ op: "update", name: args.display_name ?? null, ...rest }, [], `Update label ${args.label_id}`, [
@@ -453,8 +451,7 @@ export function registerLabelTools(
     action: "label.manage",
     journal: false,
     plan: (_e, _t, _a, args) => {
-      if (isSystemLabel(args.label_id))
-        throw new GmailMcpError("forbidden", "forbidden: system labels cannot be deleted");
+      if (isSystemLabel(args.label_id)) throw new McpError("forbidden", "forbidden: system labels cannot be deleted");
       return simple({ op: "delete", label_id: args.label_id }, [], `Delete label ${args.label_id}`, [args.label_id]);
     },
     execute: async (e, d, run) => {

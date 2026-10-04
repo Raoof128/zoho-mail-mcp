@@ -7,7 +7,7 @@ import { privateDirectory, digest } from "./private-files.ts";
 export async function withDeploymentLock<T>(
   target: { platformAccountId: string; workerName: string },
   work: () => Promise<T>,
-  lockRoot = join(homedir(), ".gmail-mcp-qualification-locks"),
+  lockRoot = join(homedir(), ".zoho-mail-mcp-qualification-locks"),
 ): Promise<T> {
   await mkdir(lockRoot, { mode: 0o700 }).catch((error: unknown) => {
     if (!(error instanceof Error && "code" in error && error.code === "EEXIST")) throw error;

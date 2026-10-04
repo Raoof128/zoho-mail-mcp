@@ -39,7 +39,7 @@ export async function main(args: string[]): Promise<number> {
         try {
           const result = await promisify(execFile)(
             "npm",
-            ["test", "-w", "@gmail-mcp/worker", "--", "--run", ...files.map((f) => `test/${f}`)],
+            ["test", "-w", "@zoho-mail-mcp/worker", "--", "--run", ...files.map((f) => `test/${f}`)],
             {
               cwd: fileURLToPath(new URL("../../", import.meta.url)),
               timeout: 120000,

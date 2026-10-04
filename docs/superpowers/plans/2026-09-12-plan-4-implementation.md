@@ -29,7 +29,7 @@ Files: `shared/src/staging.ts`, `shared/package.json`, `shared/test/staging.test
 Interfaces: strict `TransferIntent`, `TransferResult`, `TransferId`, and constants for budgets/deadlines. `TransferIntent` discriminates ensure/status/retry and requires expected generation plus retry ID for retry.
 
 - [x] Write schema rejection tests and ownership/active-generation uniqueness tests.
-- [x] Run `npm test -w @gmail-mcp/shared` and Worker transfer tests; record the expected missing-contract/schema failures.
+- [x] Run `npm test -w @zoho-mail-mcp/shared` and Worker transfer tests; record the expected missing-contract/schema failures.
 - [x] Implement strict schemas and append-only migration, using composite ownership foreign keys and partial uniqueness.
 - [x] Rerun focused tests, format and typecheck.
 

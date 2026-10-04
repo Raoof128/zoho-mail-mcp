@@ -1,4 +1,4 @@
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Env } from "../env";
 /** Marker is installed only by the trusted schema/deployment verifier, never by a public route. */
 export function installationAssertion(env: Env): D1PreparedStatement {
@@ -11,6 +11,6 @@ export async function assertInstallation(env: Env): Promise<void> {
     if (!env.RESTORE_GENERATION || !env.BUILD_ID) throw new Error("missing deployment identity");
     await installationAssertion(env).run();
   } catch {
-    throw new GmailMcpError("internal", "maintenance: mutations are frozen");
+    throw new McpError("internal", "maintenance: mutations are frozen");
   }
 }

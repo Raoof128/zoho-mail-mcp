@@ -119,7 +119,7 @@ func testUnresolvedDebtListsTheChargeAHandDeletedTemporaryLeaves() throws {
     // The act that makes the debt permanent: tidying the temporary away by hand.
     let temp = try XCTUnwrap(
       FileManager.default.contentsOfDirectory(atPath: root.path).first {
-        $0.hasPrefix(".gmail-mcp-")
+        $0.hasPrefix(".zoho-mail-mcp-")
       })
     try FileManager.default.removeItem(at: root.appendingPathComponent(temp))
     XCTAssertThrowsError(
@@ -164,7 +164,7 @@ public func temporaryPresence(root id: String, path: String) -> TemporaryPresenc
   guard let r = try? root(id, write: true) else { return .unknown }
   let leaf = (path as NSString).lastPathComponent
   let parent = (path as NSString).deletingLastPathComponent
-  guard leaf.range(of: "^\\.gmail-mcp-[A-Fa-f0-9-]{36}$", options: .regularExpression) != nil
+  guard leaf.range(of: "^\\.zoho-mail-mcp-[A-Fa-f0-9-]{36}$", options: .regularExpression) != nil
   else { return .unknown }
   if !parent.isEmpty, (try? validated(parent)) == nil { return .unknown }
   let fd = gm_open(r.fd, path, O_RDONLY | O_NONBLOCK, 0)
@@ -254,7 +254,7 @@ func testReleaseDebtClearsTheChargeAndLeavesThePublicationTruthAlone() throws {
         sha256: SafeFiles.digest(bytes)))
     let temp = try XCTUnwrap(
       FileManager.default.contentsOfDirectory(atPath: root.path).first {
-        $0.hasPrefix(".gmail-mcp-")
+        $0.hasPrefix(".zoho-mail-mcp-")
       })
     try FileManager.default.removeItem(at: root.appendingPathComponent(temp))
     XCTAssertThrowsError(
@@ -309,7 +309,7 @@ func testReleaseDebtRefusesWhenSomethingElseNowHoldsTheTemporaryName() throws {
         sha256: SafeFiles.digest(bytes)))
     let temp = try XCTUnwrap(
       FileManager.default.contentsOfDirectory(atPath: root.path).first {
-        $0.hasPrefix(".gmail-mcp-")
+        $0.hasPrefix(".zoho-mail-mcp-")
       })
     try FileManager.default.removeItem(at: root.appendingPathComponent(temp))
     XCTAssertThrowsError(
@@ -406,7 +406,7 @@ because releasing a charge learns nothing about the destination."
 
 ---
 
-### Task 2: `gmail-mcp-companion debt` exposes the repair to the owner
+### Task 2: `zoho-mail-mcp-companion debt` exposes the repair to the owner
 
 The native side is useless to the owner until the CLI drives it. This is the command a future reader
 reaches for when a save answers `spool_budget`, so its output has to explain the state rather than
@@ -561,7 +561,7 @@ if (command === "debt") {
     }
     for (const row of rows) {
       const remedy = row.releasable
-        ? `run: gmail-mcp-companion debt --scope ${row.scope} --release ${row.handle}`
+        ? `run: zoho-mail-mcp-companion debt --scope ${row.scope} --release ${row.handle}`
         : row.temporary === "present"
           ? "start the companion; the helper collects this safely on startup"
           : `not clearable: state ${row.state}, temporary ${row.temporary}`;
@@ -635,15 +635,15 @@ access, and publishing them would still be publishing personal data for no gain.
 the real values out of `debt` and compares them against what the owner confirms, which is what the
 preflight is for; the shapes below are what makes the comparison checkable.
 
-| Field       | Value                                                                         |
-| ----------- | ----------------------------------------------------------------------------- |
-| reservation | `save:<reservation digest>`                                                   |
-| bytes       | 26,214,400                                                                    |
-| scope       | `<scope digest>`                                                              |
-| handle      | `<handle>`                                                                    |
-| state       | `publication_unknown`                                                         |
-| temporary   | `.gmail-mcp-8198FF28-3AFB-4F65-9781-AF6151DA3028`, absent from the write root |
-| destination | `attachments/<owner attachment>.pdf`                                          |
+| Field       | Value                                                                             |
+| ----------- | --------------------------------------------------------------------------------- |
+| reservation | `save:<reservation digest>`                                                       |
+| bytes       | 26,214,400                                                                        |
+| scope       | `<scope digest>`                                                                  |
+| handle      | `<handle>`                                                                        |
+| state       | `publication_unknown`                                                             |
+| temporary   | `.zoho-mail-mcp-8198FF28-3AFB-4F65-9781-AF6151DA3028`, absent from the write root |
+| destination | `attachments/<owner attachment>.pdf`                                              |
 
 Two other save records exist and neither holds a reservation: `<handle A>` is `prepared` and
 `<handle B>` is `acknowledged`. Exactly one row should appear.
@@ -663,7 +663,7 @@ rather than fail. Quit the MCP client's companion connection first.
 
 Run: `node companion/src/cli.ts debt`
 Expected: exactly one row, matching every field of the table above, whose remedy line reads
-`run: gmail-mcp-companion debt --scope <scope digest> --release <handle>`.
+`run: zoho-mail-mcp-companion debt --scope <scope digest> --release <handle>`.
 
 Stop if more than one row appears, if the byte count differs, if the state is not
 `publication_unknown`, or if the temporary is anything but absent. Any of those means the machine
@@ -689,7 +689,7 @@ Restart the companion, then run `save_attachment` with `root: "attachments"` and
 `path: "plan7-repair-proof.pdf"`, a name nothing else uses.
 Expected: a published, acknowledged receipt rather than `spool_budget`.
 
-Then delete `~/Downloads/Gmail MCP/plan7-repair-proof.pdf` through the Finder or `rm`, and run
+Then delete `~/Downloads/Mail/plan7-repair-proof.pdf` through the Finder or `rm`, and run
 `node companion/src/cli.ts debt` once more. Expected: `No charged save debt.` A completed save
 releases its own reservation, so deleting its destination afterwards leaves nothing charged. Confirm
 that rather than assuming it.
@@ -1070,7 +1070,7 @@ two adopted with the remedy replaced, and both replacements came from source:
   `discardTemporary` already separates ENOENT from every other open failure. The probe copies that
   shape instead of inventing one.
 - Requiring `path == leaf` would break every temporary in a subdirectory, and `prepare` builds
-  exactly those: `(parent.isEmpty ? "" : parent + "/") + ".gmail-mcp-" + UUID()`. The fix is
+  exactly those: `(parent.isEmpty ? "" : parent + "/") + ".zoho-mail-mcp-" + UUID()`. The fix is
   `validated(parent)`, which is what `discardTemporary` calls.
 
 The review also asked for a concurrency statement between owner repair and `recoverStartup`. There is
@@ -1158,7 +1158,7 @@ And the live listing, before any repair, matched the Task 3 preflight in every f
 
 ```
 <handle>  publication_unknown  26214400 bytes  attachments/<owner attachment>.pdf
-  run: gmail-mcp-companion debt --scope <scope digest> --release <handle>
+  run: zoho-mail-mcp-companion debt --scope <scope digest> --release <handle>
 ```
 
 ### Task 3: the live repair
@@ -1183,7 +1183,7 @@ protocol to a disposable path. That exercises the exact operation that was faili
 `spool_budget` came from `journal.reserve` inside `save.prepare`:
 
 ```
-prepare: {"state":"prepared","relative":"plan7-repair-proof.pdf","temporary":".gmail-mcp-692A8803-…"}
+prepare: {"state":"prepared","relative":"plan7-repair-proof.pdf","temporary":".zoho-mail-mcp-692A8803-…"}
 publish: {"state":"published","file":{"size":20,"sha256":"45c15da4…","inode":193311833}}
 ack    : {"state":"acknowledged", …}
 ```
@@ -1406,7 +1406,7 @@ is a finding rather than an emergency.
 
 ### What the run touched
 
-Two files were created under `~/Downloads/Gmail MCP` and both were removed; the owner's
+Two files were created under `~/Downloads/Mail` and both were removed; the owner's
 `<owner attachment>.pdf` is the only file left there. The journal records the run created under the
 scopes `plan7e2e` and `plan7probe` were deleted afterwards, which is the one hand-edit of owner
 data in this plan and is recorded because the rule against hand-editing that journal is what caused

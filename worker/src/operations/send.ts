@@ -1,5 +1,5 @@
 import { readMutationReceipt } from "../google/mutation-receipt";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Deps } from "../deps";
 import type { Env } from "../env";
 import { gmailFetch, openResumableSession, putResumable, type Upload } from "../google/gmail";
@@ -51,7 +51,7 @@ async function beginSend(
     .bind(acct.userId, acct.accountId)
     .first<{ credential_version: number }>();
   if (!row || (expectedVersion !== undefined && row.credential_version !== expectedVersion))
-    throw new GmailMcpError("account_needs_reconnect", "account_needs_reconnect");
+    throw new McpError("account_needs_reconnect", "account_needs_reconnect");
   if (body.recoveryContext.executor === "send_draft" && body.rfc822MessageId) {
     await env.DB.prepare(
       "UPDATE operations SET rfc822_message_id=? WHERE id=? AND user_id=? AND account_id=? AND state='claimed' AND settlement_protocol=1",
@@ -88,11 +88,11 @@ export async function collect(stream: ReadableStream<Uint8Array>, length: number
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    if (o + value.byteLength > length) throw new GmailMcpError("internal", "mime stream longer than declared");
+    if (o + value.byteLength > length) throw new McpError("internal", "mime stream longer than declared");
     out.set(value, o);
     o += value.byteLength;
   }
-  if (o !== length) throw new GmailMcpError("internal", `mime stream was ${o} bytes, declared ${length}`);
+  if (o !== length) throw new McpError("internal", `mime stream was ${o} bytes, declared ${length}`);
   return out;
 }
 
@@ -109,7 +109,7 @@ async function upload(
   o: Body & { operationId: string; path: string; method: "POST" | "PUT"; contentType: string },
 ): Promise<Response> {
   if (o.length > GMAIL_SEND_MAX)
-    throw new GmailMcpError(
+    throw new McpError(
       "limit_exceeded",
       `limit_exceeded: message is ${o.length} bytes, Gmail's ceiling is ${GMAIL_SEND_MAX}`,
     );
@@ -133,7 +133,7 @@ async function upload(
         .bind(acct.userId, acct.accountId)
         .first<number>("credential_version")
     : undefined;
-  if (initiationVersion === null) throw new GmailMcpError("account_needs_reconnect", "account_needs_reconnect");
+  if (initiationVersion === null) throw new McpError("account_needs_reconnect", "account_needs_reconnect");
   const session = await openResumableSession(env, deps, acct, {
     path: o.path,
     expectedCredentialVersion: initiationVersion,

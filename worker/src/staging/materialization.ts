@@ -1,6 +1,6 @@
 import type { Env } from "../env";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
-import { STAGING_LIMITS as L } from "@gmail-mcp/shared/staging";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
+import { STAGING_LIMITS as L } from "@zoho-mail-mcp/shared/staging";
 import { randomId } from "../crypto/random";
 import { assertion, byteQuota, accountAssert } from "./transfers";
 export type Materialization = { id: string; until: number };
@@ -35,7 +35,7 @@ export async function withMaterialization<T>(
       ),
     ]);
   } catch {
-    throw new GmailMcpError("limit_exceeded", "limit_exceeded: materialization busy");
+    throw new McpError("limit_exceeded", "limit_exceeded: materialization busy");
   }
   try {
     return await run({ id, until });

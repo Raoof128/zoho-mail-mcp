@@ -1,4 +1,4 @@
-import { ACTIONS, DEFAULT_POLICY, LEVELS, type Action, type Level } from "@gmail-mcp/shared/actions";
+import { ACTIONS, DEFAULT_POLICY, LEVELS, type Action, type Level } from "@zoho-mail-mcp/shared/actions";
 import type { Env } from "../../env";
 import { applyPolicyEdit, type PolicyChange } from "../../policy/engine";
 import { BLOCKED_EXTENSIONS } from "../../policy/limits";

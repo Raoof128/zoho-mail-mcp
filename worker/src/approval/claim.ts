@@ -1,16 +1,16 @@
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
-import { StagingHandle } from "@gmail-mcp/shared/schemas";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
+import { StagingHandle } from "@zoho-mail-mcp/shared/schemas";
 import { randomId } from "../crypto/random";
 import { reserveStatements } from "../staging/store";
 import { getPending, type PendingRow } from "./pending";
 
 /** Handles come from the approved payload only. Any other shape is a payload_mismatch, never a guess. */
 export function handlesFromPayload(payloadJson: string | null): string[] {
-  if (payloadJson === null) throw new GmailMcpError("payload_mismatch", "payload_mismatch: payload purged");
+  if (payloadJson === null) throw new McpError("payload_mismatch", "payload_mismatch: payload purged");
   const parsed = JSON.parse(payloadJson) as { attachments?: unknown };
   const list = parsed.attachments ?? [];
   if (!Array.isArray(list) || !list.every((h) => StagingHandle.safeParse(h).success)) {
-    throw new GmailMcpError("payload_mismatch", "payload_mismatch: attachments must be staging handles");
+    throw new McpError("payload_mismatch", "payload_mismatch: attachments must be staging handles");
   }
   return [...new Set(list as string[])];
 }
@@ -26,14 +26,14 @@ export async function claimPending(
   o: { id: string; userId: string },
 ): Promise<{ operationId: string; pending: PendingRow; handles: string[] }> {
   const before = await getPending(db, o.id, o.userId);
-  if (!before) throw new GmailMcpError("pending_not_approved", "pending_not_approved: unknown");
-  if (before.expires_at <= Date.now()) throw new GmailMcpError("pending_expired", "pending_expired");
+  if (!before) throw new McpError("pending_not_approved", "pending_not_approved: unknown");
+  if (before.expires_at <= Date.now()) throw new McpError("pending_expired", "pending_expired");
   if (before.state !== "approved") {
     // An action already running or already run is a replay, not a missing approval. The distinction is
     // what tells a retrying caller "this happened once" apart from "this will never happen".
     if (before.state === "executing" || before.state === "executed")
-      throw new GmailMcpError("pending_replayed", `pending_replayed: ${before.state}`);
-    throw new GmailMcpError("pending_not_approved", `pending_not_approved: ${before.state}`);
+      throw new McpError("pending_replayed", `pending_replayed: ${before.state}`);
+    throw new McpError("pending_not_approved", `pending_not_approved: ${before.state}`);
   }
   const handles = handlesFromPayload(before.payload_json);
 
@@ -68,11 +68,11 @@ export async function claimPending(
     const msg = String((e as Error).message ?? e);
     const after = await getPending(db, o.id, o.userId);
     if (after?.state === "approved" && handles.length > 0) {
-      throw new GmailMcpError("handle_reserved", `handle_reserved: one or more payload handles unavailable (${msg})`);
+      throw new McpError("handle_reserved", `handle_reserved: one or more payload handles unavailable (${msg})`);
     }
     if (after?.state !== "approved")
-      throw new GmailMcpError("pending_replayed", `pending_replayed: ${after?.state ?? "unknown"}`);
-    throw new GmailMcpError("internal", msg);
+      throw new McpError("pending_replayed", `pending_replayed: ${after?.state ?? "unknown"}`);
+    throw new McpError("internal", msg);
   }
   return { operationId, pending: (await getPending(db, o.id, o.userId))!, handles };
 }

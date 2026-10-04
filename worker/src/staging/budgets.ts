@@ -1,4 +1,4 @@
-import { STAGING_LIMITS as L } from "@gmail-mcp/shared/staging";
+import { STAGING_LIMITS as L } from "@zoho-mail-mcp/shared/staging";
 import { assertion } from "./transfers";
 /** A download reserves its admission and future ACK before accepting bytes. */
 export function recoveryBudget(db: D1Database, user: string, key: string, units: number, until: number) {

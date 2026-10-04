@@ -1,6 +1,6 @@
 import { recoveryBudget } from "./budgets";
-import { TransferIntent, type TransferResult, STAGING_LIMITS as L } from "@gmail-mcp/shared/staging";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { TransferIntent, type TransferResult, STAGING_LIMITS as L } from "@zoho-mail-mcp/shared/staging";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Env } from "../env";
 import type { Principal } from "../auth/principal";
 import { canonicalize, hashCanonical } from "../crypto/canonical";
@@ -144,7 +144,7 @@ export async function ensureTransfer(env: Env, p: Principal, raw: TransferIntent
   const now = Date.now();
   let t = await readTransfer(db, p.userId, input.transfer_id);
   if (!t) {
-    if (input.mode !== "ensure") throw new GmailMcpError("handle_invalid", "handle_invalid: unknown transfer");
+    if (input.mode !== "ensure") throw new McpError("handle_invalid", "handle_invalid: unknown transfer");
     const account = await resolveAccount(env, p.userId, input.account);
     assertNotBlocked(input.metadata.filename);
     const policy = await policySnapshot(env, p.userId, account.id);
@@ -158,7 +158,7 @@ export async function ensureTransfer(env: Env, p: Principal, raw: TransferIntent
         decision: "deny",
         facts: { attachments: 1 },
       }).run();
-      throw new GmailMcpError("policy_denied", "policy_denied: upload");
+      throw new McpError("policy_denied", "policy_denied: upload");
     }
     const metadata = canonicalize(input.metadata);
     const hash = await hashCanonical(canonicalize({ account_id: account.id, metadata: input.metadata, v: 1 }));
@@ -232,12 +232,12 @@ export async function ensureTransfer(env: Env, p: Principal, raw: TransferIntent
       await db.batch(stmts);
     } catch (e) {
       if (!(await readTransfer(db, p.userId, input.transfer_id)))
-        throw new GmailMcpError("limit_exceeded", "limit_exceeded: intent admission failed", { cause: String(e) });
+        throw new McpError("limit_exceeded", "limit_exceeded: intent admission failed", { cause: String(e) });
     }
     t = (await readTransfer(db, p.userId, input.transfer_id))!;
   }
   if (t.account_alias !== input.account || t.metadata_json !== canonicalize(input.metadata))
-    throw new GmailMcpError("idempotency_conflict", "idempotency_conflict: transfer is bound to another intent");
+    throw new McpError("idempotency_conflict", "idempotency_conflict: transfer is bound to another intent");
   if (input.mode === "status" || t.handle || ["failed", "denied", "expired"].includes(t.state))
     return transferView(env, t);
   if (t.authority_until <= now) {
@@ -259,14 +259,14 @@ export async function ensureTransfer(env: Env, p: Principal, raw: TransferIntent
       .first<{ expected_generation: number; result_generation: number }>();
     if (previous) {
       if (previous.expected_generation !== input.expected_generation)
-        throw new GmailMcpError("idempotency_conflict", "idempotency_conflict: retry identity");
+        throw new McpError("idempotency_conflict", "idempotency_conflict: retry identity");
       return transferView(env, t, previous.result_generation);
     }
   }
   const policy = await policySnapshot(env, t.user_id, t.account_id);
   if (policy.level === "deny") {
     await terminalBeforeAdmission(env, t, "denied", "policy_denied");
-    throw new GmailMcpError("policy_denied", "policy_denied: upload policy tightened");
+    throw new McpError("policy_denied", "policy_denied: upload policy tightened");
   }
   const pending = t.pending_id ? await getPending(db, t.pending_id, t.user_id) : null;
   if (t.active_generation && t.state !== "awaiting_approval") {
@@ -338,8 +338,7 @@ export async function ensureTransfer(env: Env, p: Principal, raw: TransferIntent
         ]);
       } catch {
         const latest = await readTransfer(db, t.user_id, t.id);
-        if (!latest?.pending_id)
-          throw new GmailMcpError("pending_not_approved", "pending_not_approved: admission changed");
+        if (!latest?.pending_id) throw new McpError("pending_not_approved", "pending_not_approved: admission changed");
       }
     }
     return transferView(env, (await readTransfer(db, t.user_id, t.id))!, 0);
@@ -353,13 +352,13 @@ export async function ensureTransfer(env: Env, p: Principal, raw: TransferIntent
       pending.payload_hash !== (await hashCanonical(expected)) ||
       pending.expires_at <= now
     )
-      throw new GmailMcpError("payload_mismatch", "payload_mismatch: staging approval");
+      throw new McpError("payload_mismatch", "payload_mismatch: staging approval");
     if (!["approved", "executing"].includes(pending.state)) return transferView(env, t, 0);
   }
   const old = t.active_generation;
   const next = old + 1;
   if (next > L.generations || (input.mode === "retry" && input.expected_generation !== old))
-    throw new GmailMcpError("idempotency_conflict", "idempotency_conflict: stale generation");
+    throw new McpError("idempotency_conflict", "idempotency_conflict: stale generation");
   const ticket = randomHandle().replace(/^sh_/, "ut_");
   const op = t.operation_id ?? randomId("op");
   const stmts = [
@@ -465,9 +464,9 @@ export async function ensureTransfer(env: Env, p: Principal, raw: TransferIntent
         .first<{ result_generation: number }>();
       if (receipt) return transferView(env, latest, receipt.result_generation);
       if (latest.active_generation !== old)
-        throw new GmailMcpError("idempotency_conflict", "idempotency_conflict: competing retry");
+        throw new McpError("idempotency_conflict", "idempotency_conflict: competing retry");
     } else if (latest.active_generation === next) return transferView(env, latest);
-    throw new GmailMcpError("limit_exceeded", "limit_exceeded: ticket admission failed", { cause: String(e) });
+    throw new McpError("limit_exceeded", "limit_exceeded: ticket admission failed", { cause: String(e) });
   }
   return transferView(env, (await readTransfer(db, t.user_id, t.id))!);
 }

@@ -1,4 +1,4 @@
-import type { Modifier } from "@gmail-mcp/shared/actions";
+import type { Modifier } from "@zoho-mail-mcp/shared/actions";
 import { env } from "cloudflare:test";
 import { describe, it, expect, beforeAll } from "vitest";
 import { seedUserAndAccount } from "./fixtures";
@@ -8,7 +8,7 @@ import { cancelPending } from "../src/approval/pending";
 import { claimPending } from "../src/approval/claim";
 import { ack, extendExpiry, listUploadHandles } from "../src/staging/store";
 import { leasedDownload } from "../src/staging/downloads";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 
 // Owner A and owner B each hold an account. Every case below is owner A reaching for something that
 // belongs to owner B, or for one of their own rows through the wrong door. The point is that the
@@ -32,7 +32,7 @@ const code = async (fn: () => Promise<unknown>): Promise<string> => {
     await fn();
     return "NO ERROR";
   } catch (e) {
-    return e instanceof GmailMcpError ? e.code : `other:${(e as Error).message}`;
+    return e instanceof McpError ? e.code : `other:${(e as Error).message}`;
   }
 };
 

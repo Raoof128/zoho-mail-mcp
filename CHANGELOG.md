@@ -30,7 +30,7 @@ counts are stated; other documents link here rather than repeating them.
   none prompted. The second run was against the redeployed build with the dependency updates, and neither
   run created a pending action.
 
-- **`gmail-mcp-companion debt`.** A save that loses the exclusive rename holds its 25 MiB reservation
+- **`zoho-mail-mcp-companion debt`.** A save that loses the exclusive rename holds its 25 MiB reservation
   until the helper collects the leftover temporary, and when the collector cannot verify what it would
   remove the charge stays and every later save answers `spool_budget`. The command lists what is charged
   with the remedy that fits it, and `debt --scope SCOPE --release HANDLE` clears a charge in the single

@@ -1,5 +1,5 @@
-import type { Action } from "@gmail-mcp/shared/actions";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import type { Action } from "@zoho-mail-mcp/shared/actions";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import { randomId } from "../crypto/random";
 
 export type OpState = "claimed" | "executing" | "delivery_unknown" | "executed" | "failed_safe";
@@ -50,12 +50,9 @@ export async function acquire(
     .prepare("SELECT * FROM operations WHERE user_id = ? AND account_id = ? AND idempotency_key = ?")
     .bind(o.userId, o.accountId, o.idempotencyKey)
     .first<OperationRow>();
-  if (!row) throw new GmailMcpError("internal", "acquire: row vanished after insert");
+  if (!row) throw new McpError("internal", "acquire: row vanished after insert");
   if (row.action !== o.action || row.payload_hash !== o.payloadHash) {
-    throw new GmailMcpError(
-      "idempotency_conflict",
-      "idempotency_conflict: key previously used for a different operation",
-    );
+    throw new McpError("idempotency_conflict", "idempotency_conflict: key previously used for a different operation");
   }
   if (row.id === id) return { operationId: id, existing: null };
   return { operationId: row.id, existing: row };
@@ -86,7 +83,7 @@ export async function beginOperation(
   patch: { rfc822_message_id?: string } = {},
 ): Promise<void> {
   if (!(await transition(db, operationId, ["claimed"], "executing", patch))) {
-    throw new GmailMcpError("internal", `operation ${operationId} was not claimed`);
+    throw new McpError("internal", `operation ${operationId} was not claimed`);
   }
 }
 

@@ -6,7 +6,7 @@ import { ensureTransfer } from "../src/staging/transfers";
 import { sha256Hex } from "../src/crypto/canonical";
 import { withMaterialization } from "../src/staging/materialization";
 import { recoverUploads } from "../src/staging/recovery";
-import { STAGING_LIMITS as L } from "@gmail-mcp/shared/staging";
+import { STAGING_LIMITS as L } from "@zoho-mail-mcp/shared/staging";
 
 const USER = "mat-owner";
 const ACCOUNT = "mat-account";

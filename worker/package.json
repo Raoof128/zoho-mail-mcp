@@ -1,5 +1,5 @@
 {
-  "name": "@gmail-mcp/worker",
+  "name": "@zoho-mail-mcp/worker",
   "version": "0.0.1",
   "private": true,
   "type": "module",
@@ -12,7 +12,7 @@
   },
   "dependencies": {
     "@cloudflare/workers-oauth-provider": "0.10.3",
-    "@gmail-mcp/shared": "0.0.1",
+    "@zoho-mail-mcp/shared": "0.0.1",
     "@modelcontextprotocol/server": "2.0.0",
     "agents": "0.24.0",
     "jose": "6.2.12",

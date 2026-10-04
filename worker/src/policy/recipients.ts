@@ -1,5 +1,5 @@
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
-import type { Modifier } from "@gmail-mcp/shared/actions";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
+import type { Modifier } from "@zoho-mail-mcp/shared/actions";
 
 export type ParsedAddress = { local: string; domain: string; normalized: string };
 export type TrustContext = { selfAddresses: string[]; allowlist: string[]; orgDomains: string[] };
@@ -15,7 +15,7 @@ const LOCAL = /^[A-Za-z0-9!#$%&'*+/=?^_`{|}~-]+(?:\.[A-Za-z0-9!#$%&'*+/=?^_`{|}~
 const DOMAIN = /^[A-Za-z0-9¡-￿-]+(?:\.[A-Za-z0-9¡-￿-]+)+$/u;
 
 function fail(raw: string): never {
-  throw new GmailMcpError("invalid_address", `invalid_address: ${raw.slice(0, 64)}`);
+  throw new McpError("invalid_address", `invalid_address: ${raw.slice(0, 64)}`);
 }
 
 export function toAsciiDomain(domain: string): string {
@@ -71,7 +71,7 @@ export function isTrusted(addr: ParsedAddress, ctx: TrustContext): boolean {
 
 export function recipientModifiers(all: string[], ctx: TrustContext): Modifier[] {
   if (all.length > MAX_RECIPIENTS) {
-    throw new GmailMcpError("limit_exceeded", `limit_exceeded: recipients ${all.length} > ${MAX_RECIPIENTS}`);
+    throw new McpError("limit_exceeded", `limit_exceeded: recipients ${all.length} > ${MAX_RECIPIENTS}`);
   }
   const parsed = all.map(parseAddress);
   const distinct = new Set(parsed.map((p) => p.normalized));

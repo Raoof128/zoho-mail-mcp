@@ -91,6 +91,6 @@ it.skipIf(!existsSync(nativeBinary))("debt lists charged debt and refuses a hand
     timeout: 60_000,
   });
   expect(noScope.stdout).toBe("");
-  expect(noScope.stderr).toContain("Usage: gmail-mcp-companion");
+  expect(noScope.stderr).toContain("Usage: zoho-mail-mcp-companion");
   expect(noScope.status).toBe(1);
 });

@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { z } from "zod";
-import { UploadMetadata, STAGING_LIMITS } from "@gmail-mcp/shared/staging";
-import { AccountAlias, MediaType } from "@gmail-mcp/shared/schemas";
+import { UploadMetadata, STAGING_LIMITS } from "@zoho-mail-mcp/shared/staging";
+import { AccountAlias, MediaType } from "@zoho-mail-mcp/shared/schemas";
 import { Authority, boundedBody } from "./http.ts";
 import type { NativePort } from "./protocol.ts";
 const relative = z
@@ -16,7 +16,7 @@ const relative = z
       s
         .split("/")
         .every(
-          (p) => p !== "" && p !== "." && p !== ".." && !p.startsWith(".gmail-mcp-") && Buffer.byteLength(p) <= 255,
+          (p) => p !== "" && p !== "." && p !== ".." && !p.startsWith(".zoho-mail-mcp-") && Buffer.byteLength(p) <= 255,
         ),
   );
 const root = z.string().regex(/^[a-z][a-z0-9_-]{0,63}$/);

@@ -1,4 +1,4 @@
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 
 export const LIMITS = {
   subjectBytes: 998,
@@ -74,7 +74,7 @@ export function assertNotBlocked(filename: string): void {
   const dot = filename.lastIndexOf(".");
   if (dot <= 0 || dot === filename.length - 1) return;
   const ext = filename.slice(dot + 1).toLowerCase();
-  if (BLOCKED_EXTENSIONS.has(ext)) throw new GmailMcpError("blocked_extension", `blocked_extension: .${ext}`);
+  if (BLOCKED_EXTENSIONS.has(ext)) throw new McpError("blocked_extension", `blocked_extension: .${ext}`);
 }
 
 // Matching control and bidirectional-override characters is the point of this pattern: they are
@@ -114,9 +114,9 @@ export function sanitizeFilename(name: string): string {
 
 export function assertHeaderSafe(field: string, value: string): void {
   if (/[\r\n\0]/.test(value)) {
-    throw new GmailMcpError("invalid_header", `invalid_header: ${field} contains control characters`);
+    throw new McpError("invalid_header", `invalid_header: ${field} contains control characters`);
   }
   if (field === "subject" && utf8Length(value) > LIMITS.subjectBytes) {
-    throw new GmailMcpError("limit_exceeded", `limit_exceeded: subject > ${LIMITS.subjectBytes} bytes`);
+    throw new McpError("limit_exceeded", `limit_exceeded: subject > ${LIMITS.subjectBytes} bytes`);
   }
 }

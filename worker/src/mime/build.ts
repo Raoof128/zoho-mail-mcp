@@ -1,4 +1,4 @@
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import { assertHeaderSafe } from "../policy/limits";
 import { b64url } from "../crypto/random";
 import {
@@ -132,7 +132,7 @@ export function buildMimeStream(o: MimeInput): { stream: ReadableStream<Uint8Arr
           }
           if (seen !== expected) {
             controller.error(
-              new GmailMcpError(
+              new McpError(
                 "handle_invalid",
                 `handle_invalid: ${current?.filename ?? "attachment"} yielded ${seen} encoded bytes, expected ${expected}`,
               ),
@@ -169,7 +169,7 @@ export function buildMimeStream(o: MimeInput): { stream: ReadableStream<Uint8Arr
 export async function buildMime(o: MimeInput): Promise<Uint8Array> {
   const { stream, length } = buildMimeStream(o);
   const out = new Uint8Array(await new Response(stream).arrayBuffer());
-  if (out.byteLength !== length) throw new GmailMcpError("internal", `mime length ${out.byteLength} != ${length}`);
+  if (out.byteLength !== length) throw new McpError("internal", `mime length ${out.byteLength} != ${length}`);
   return out;
 }
 

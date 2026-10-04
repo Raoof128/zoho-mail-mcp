@@ -1,6 +1,6 @@
 import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
-import { GmailMcpError } from "@gmail-mcp/shared/errors";
-import { CreateDraftInput, UpdateDraftInput } from "@gmail-mcp/shared/schemas";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
+import { CreateDraftInput, UpdateDraftInput } from "@zoho-mail-mcp/shared/schemas";
 import type { Env } from "../env";
 import type { Deps } from "../deps";
 import { gmailJson } from "../google/gmail";
@@ -101,7 +101,7 @@ async function planCompose(
 
 async function executeDraft(env: Env, deps: Deps, run: ExecRun) {
   const p = run.payload as unknown as DraftPayload;
-  if (!run.operationId) throw new GmailMcpError("internal", "draft.write runs with an operation");
+  if (!run.operationId) throw new McpError("internal", "draft.write runs with an operation");
   const { body, length, rfc822MessageId } = await composeMime(env, deps, run, p, run.operationId);
   const d = await uploadDraft(env, deps, {
     userId: run.userId,
