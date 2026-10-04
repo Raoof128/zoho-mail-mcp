@@ -63,15 +63,24 @@ async function accountRow(env: Env, acct: ZohoAcct): Promise<{ zoho_account_id: 
   return row;
 }
 
+/**
+ * Builds the request URL and refuses any path that would leave the account's base: another origin, an absolute
+ * path, a backslash or a dot segment (plain or percent-encoded). From M2 paths carry ids taken from email, which
+ * is attacker-controlled; the Zoho token must only ever reach mail.zoho.com.au under this account.
+ */
 function url(base: string, path: string, query?: ZohoRequest["query"]): string {
-  const u = new URL(path, base.endsWith("/") ? base : base + "/");
+  const root = new URL(base.endsWith("/") ? base : base + "/");
+  if (/^[a-z][a-z0-9+.-]*:|^[/\\]|\\|%2e|%2f|%5c|(^|\/)\.{1,2}(\/|$)/i.test(path))
+    throw new McpError("forbidden", "forbidden: request path leaves the account");
+  const u = new URL(path, root);
+  if (u.origin !== root.origin || !u.pathname.startsWith(root.pathname))
+    throw new McpError("forbidden", "forbidden: request path leaves the account");
   for (const [k, v] of Object.entries(query ?? {})) if (v !== undefined) u.searchParams.set(k, String(v));
   return u.toString();
 }
 
-/** The one path to Zoho. Admission by the account DO, one refresh-and-retry on INVALID_OAUTHTOKEN, bounded retries for safe requests. */
-export async function zohoFetch(env: Env, deps: Deps, acct: ZohoAcct, req: ZohoRequest): Promise<Response> {
-  const stub = accountStub(env, acct.accountId);
+/** One request's worth of the tool call's budget and the account's bucket. Every attempt pays, retries included. */
+async function spend(stub: ReturnType<typeof accountStub>, acct: ZohoAcct): Promise<void> {
   if (!(await stub.budget(acct.toolCallId, "requests", 1)))
     throw new McpError("budget_exceeded", "budget_exceeded: more than 10 Zoho requests in one tool call", {
       counter: "requests",
@@ -79,31 +88,40 @@ export async function zohoFetch(env: Env, deps: Deps, acct: ZohoAcct, req: ZohoR
   const admitted = await stub.admit(acct.toolCallId);
   if (!admitted.ok)
     throw new McpError("rate_limited", "rate_limited: account bucket", { retry_after_ms: admitted.retry_after_ms });
+}
+
+/**
+ * The one path to Zoho. Every attempt is admitted by the account DO. One refresh-and-retry on INVALID_OAUTHTOKEN and
+ * bounded retries for safe requests, except that a streamed body is sent once only: it is consumed by the first send.
+ */
+export async function zohoFetch(env: Env, deps: Deps, acct: ZohoAcct, req: ZohoRequest): Promise<Response> {
+  const stub = accountStub(env, acct.accountId);
   const row = await accountRow(env, acct);
   const base =
     req.scope === "root"
       ? ZOHO.mailBase(row.location)
       : `${ZOHO.mailBase(row.location)}/accounts/${row.zoho_account_id}`;
+  const target = url(base, req.path, req.query);
+  const isStream = req.body instanceof ReadableStream;
   let refreshed = false;
+  let forceNext = false;
   for (let attempt = 1; ; attempt++) {
-    const token = await getAccessToken(env, deps, acct.userId, acct.accountId, {
-      forceRefresh: refreshed && attempt === 2,
-    });
-    const headers = new Headers({
-      authorization: `Zoho-oauthtoken ${token}`,
-      accept: "application/json",
-      ...req.headers,
-    });
+    await spend(stub, acct);
+    const token = await getAccessToken(env, deps, acct.userId, acct.accountId, { forceRefresh: forceNext });
+    forceNext = false;
+    const headers = new Headers({ accept: "application/json", ...req.headers });
+    headers.set("authorization", `Zoho-oauthtoken ${token}`);
     let body: BodyInit | undefined;
     if (req.json !== undefined) {
       headers.set("content-type", "application/json");
       body = JSON.stringify(req.json);
     } else if (req.body) body = req.body as BodyInit;
-    const res = await deps.zohoFetch(url(base, req.path, req.query), {
+    const res = await deps.zohoFetch(target, {
       method: req.method,
       headers,
       body,
-      ...(req.body instanceof ReadableStream ? { duplex: "half" } : {}),
+      redirect: "manual",
+      ...(isStream ? { duplex: "half" } : {}),
     } as RequestInit);
     if (res.ok) return res;
     const parsed = parseZohoError(
@@ -114,7 +132,13 @@ export async function zohoFetch(env: Env, deps: Deps, acct: ZohoAcct, req: ZohoR
       res.statusText,
     );
     if (res.status === 401 && parsed.code === "INVALID_OAUTHTOKEN" && !refreshed) {
-      refreshed = true; // getAccessToken with forceRefresh on the next loop; invalid_grant surfaces as account_needs_reconnect from tokens.ts
+      refreshed = true;
+      if (isStream) {
+        // The stream is spent. Refresh now so the caller's next send works, and let the caller re-create the body.
+        await getAccessToken(env, deps, acct.userId, acct.accountId, { forceRefresh: true });
+        throw new ZohoApiError(401, parsed.code, "access token refreshed; send the stream again");
+      }
+      forceNext = true; // invalid_grant surfaces as account_needs_reconnect from tokens.ts
       continue;
     }
     if (res.status === 401 && parsed.code === "INVALID_OAUTHSCOPE")
@@ -132,7 +156,7 @@ export async function zohoFetch(env: Env, deps: Deps, acct: ZohoAcct, req: ZohoR
         zohoCode: parsed.code,
       });
     }
-    if (res.status >= 500 && req.retry === "safe" && attempt < MAX_TRIES) {
+    if (res.status >= 500 && req.retry === "safe" && !isStream && attempt < MAX_TRIES) {
       await deps.sleep(BACKOFF_MS[attempt - 1] ?? 900);
       continue;
     }

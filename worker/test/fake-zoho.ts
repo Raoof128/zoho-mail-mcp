@@ -32,6 +32,8 @@ export class FakeZoho {
   multiDc = false;
   private accessCounter = 0;
   beforeRefresh: (() => Promise<void>) | null = null;
+  /** Fields merged into the next authorization_code response, to model a malformed or foreign-DC answer. */
+  codeResponsePatch: Record<string, unknown> = {};
   static async create(): Promise<FakeZoho> {
     const z = new FakeZoho();
     const { privateKey, publicKey } = await generateKeyPair("RS256", { extractable: true });
@@ -135,6 +137,7 @@ export class FakeZoho {
           ...(rec.scope.includes("openid")
             ? { id_token: await this.issue({ sub: rec.sub, email: rec.email, nonce: rec.nonce }) }
             : {}),
+          ...this.codeResponsePatch,
         });
       }
       if (field(form, "grant_type") === "refresh_token") {

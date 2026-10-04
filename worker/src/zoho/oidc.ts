@@ -67,6 +67,7 @@ async function tokenPost(env: Env, deps: Deps, form: Record<string, string>): Pr
     method: "POST",
     headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ client_id: env.ZOHO_CLIENT_ID, client_secret: env.ZOHO_CLIENT_SECRET, ...form }),
+    redirect: "manual",
   });
 }
 
@@ -83,11 +84,20 @@ export async function exchangeCode(
   const body: unknown = await res.json().catch(() => null);
   const err = TokenError.safeParse(body);
   if (err.success) throw new McpError("unauthorized", `zoho token endpoint refused: ${err.data.error}`);
-  if (!res.ok) throw new McpError("internal", `zoho token endpoint ${res.status}`);
-  const parsed = TokenResponse.safeParse(body);
-  if (!parsed.success) throw new McpError("internal", "zoho token endpoint returned an unexpected body");
-  assertAuDomain(parsed.data.api_domain);
-  return parsed.data;
+  // Zoho has minted a grant once a refresh token is in the body. Any refusal from here on revokes it, so a bad answer
+  // never leaves a live grant behind (final review of M1, finding 3).
+  const minted = (body as { refresh_token?: unknown } | null)?.refresh_token;
+  try {
+    if (!res.ok) throw new McpError("internal", `zoho token endpoint ${res.status}`);
+    const parsed = TokenResponse.safeParse(body);
+    if (!parsed.success) throw new McpError("internal", "zoho token endpoint returned an unexpected body");
+    assertAuDomain(parsed.data.api_domain);
+    return parsed.data;
+  } catch (e) {
+    if (typeof minted === "string" && minted.length > 0) await revokeToken(deps, minted);
+    if (e instanceof McpError) throw e;
+    throw new McpError("internal", "zoho token endpoint returned an unexpected body");
+  }
 }
 
 export async function refreshAccessToken(

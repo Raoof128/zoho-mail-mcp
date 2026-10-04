@@ -220,6 +220,9 @@ export const connectRoutes: Route[] = [
         await revokeToken(deps, refreshToken);
         return htmlResponse(title, body, null, status);
       };
+      // The try ends at the upsert: once the row holds the grant, a later failure must not revoke it (final review
+      // of M1, finding 6).
+      let result: { id: string; created: boolean };
       try {
         for (const needed of REQUIRED_SCOPES)
           if (!hasScope(tokens.scope, needed))
@@ -256,7 +259,7 @@ export const connectRoutes: Route[] = [
           decision: "browser",
           facts: {},
         });
-        const result = await upsertAccount(env, {
+        result = await upsertAccount(env, {
           userId: s.userId,
           slot: st.slot,
           zohoSub: id.sub,
@@ -269,20 +272,20 @@ export const connectRoutes: Route[] = [
           accessToken: tokens.access_token,
           accessExpiresAt: Date.now() + tokens.expires_in * 1000 - 60_000,
         });
-        await auditOutcome(env.DB, {
-          userId: s.userId,
-          accountId: result.id,
-          tool: "connect_page",
-          action: "account.connect",
-          modifiers: [],
-          decision: "connected",
-          facts: { ids: [result.id] },
-        });
-        return redirect("/accounts");
       } catch (e) {
         await revokeToken(deps, refreshToken);
         throw e;
       }
+      await auditOutcome(env.DB, {
+        userId: s.userId,
+        accountId: result.id,
+        tool: "connect_page",
+        action: "account.connect",
+        modifiers: [],
+        decision: "connected",
+        facts: { ids: [result.id] },
+      });
+      return redirect("/accounts");
     },
   },
 ];
