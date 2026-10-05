@@ -6,6 +6,15 @@ release.
 
 ## [Unreleased]
 
+### Zoho fork: M7 deploy and gates, in progress (2026-10-05)
+
+- **Deploy tooling.** The production config is generated from the dev config; secrets go from `.env`
+  through a pipe into `wrangler secret bulk`; generated keys are kept once in `.env`; the deploy is
+  idempotent and never unfreezes a frozen installation.
+- **Gate scripts.** G14 (OAuth conformance) and G20 (installer in a scratch HOME, recording stubs).
+- **32 MB per message.** Each account's send limit now reaches the spec's 32 MB message ceiling
+  (migration 0003); a single file stays at 25 MiB.
+
 ### Zoho fork: M6 companion and installer (2026-10-05)
 
 - **No native binary.** The Swift helper is replaced by an in-process Node port behind the same
