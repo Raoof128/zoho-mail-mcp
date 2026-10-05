@@ -2,14 +2,11 @@ import { assertInstallation } from "../operations/installation";
 import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Deps } from "../deps";
 import type { Env } from "../env";
-import { validateSessionUrl } from "./resumable";
-import type { UploadEndpoint } from "../operations/recovery-types";
 import { getAccessToken, getAccessTokenPinned } from "../zoho/tokens";
 
 export const GMAIL = {
   api: "https://gmail.googleapis.com/gmail/v1/users/me/",
   upload: "https://gmail.googleapis.com/upload/gmail/v1/users/me/",
-  resumable: "https://gmail.googleapis.com/resumable/upload/gmail/v1/users/me/",
 } as const;
 
 const MAX_TRIES = 3;
@@ -27,8 +24,6 @@ export type GmailRequest = {
   query?: Record<string, string | string[] | number | boolean | undefined>;
   json?: unknown;
   upload?: Upload;
-  /** `resumable` targets the session host; the plain API host otherwise. */
-  base?: "api" | "resumable";
   headers?: Record<string, string>;
   /** `safe` may be re-sent after a transient failure; `none` is opened once (spec 3.9). */
   retry: "safe" | "none";
@@ -134,7 +129,7 @@ function plainTarget(o: GmailRequest) {
       },
     };
   }
-  const base = o.base === "resumable" ? GMAIL.resumable : GMAIL.api;
+  const base = GMAIL.api;
   return {
     url: buildUrl(base, o.path, o.query),
     init:
@@ -186,77 +181,4 @@ export async function gmailJson<T>(env: Env, deps: Deps, acct: GmailAccount, o: 
   const res = await gmailFetch(env, deps, acct, o);
   if (res.status === 204) return undefined as T;
   return res.json<T>();
-}
-
-/**
- * Half one of the resumable protocol: the session. It moves no message bytes, so it is retried like any
- * read (spec 3.9 "5xx before the send body"). Google's recovery (query the session, resume at the
- * confirmed offset) is not built: the URL lives only in this call's stack frame.
- */
-export async function openResumableSession(
-  env: Env,
-  deps: Deps,
-  acct: GmailAccount,
-  o: {
-    path: string;
-    contentType: string;
-    length: number;
-    metadata?: Record<string, unknown>;
-    expectedCredentialVersion?: number | undefined;
-  },
-): Promise<string> {
-  const res = await gmailFetch(env, deps, acct, {
-    method: "POST",
-    path: o.path,
-    base: "resumable",
-    expectedCredentialVersion: o.expectedCredentialVersion,
-    query: { uploadType: "resumable" },
-    headers: { "x-upload-content-type": o.contentType, "x-upload-content-length": String(o.length) },
-    json: o.metadata ?? {},
-    retry: "safe",
-  });
-  const location = res.headers.get("location");
-  if (!location) throw new GmailApiError(res.status, "resumable session without Location", null);
-  return location;
-}
-
-/** Half two: the bytes. Opened exactly once; a failure here is the caller's to classify. */
-export async function putResumable(
-  env: Env,
-  deps: Deps,
-  acct: GmailAccount,
-  sessionUrl: string,
-  o: {
-    expectedCredentialVersion?: number | undefined;
-    endpoint: UploadEndpoint;
-    contentType: string;
-    length: number;
-    body: ReadableStream<Uint8Array>;
-  },
-): Promise<Response> {
-  validateSessionUrl(sessionUrl, o.endpoint);
-  await assertInstallation(env);
-  const token =
-    o.expectedCredentialVersion === undefined
-      ? await getAccessToken(env, deps, acct.userId, acct.accountId)
-      : await getAccessTokenPinned(env, deps, acct.userId, acct.accountId, {
-          expectedVersion: o.expectedCredentialVersion,
-          forceRefresh: false,
-        });
-  // Token refresh may yield across a maintenance transition. Recheck before byte admission.
-  await assertInstallation(env);
-  const res = await deps
-    .googleFetch(sessionUrl, {
-      redirect: "manual",
-      method: "PUT",
-      headers: { authorization: `Bearer ${token}`, "content-type": o.contentType },
-      body: o.body.pipeThrough(new FixedLengthStream(o.length)),
-    })
-    .catch(() => {
-      throw new GmailApiError(0, "resumable transport failed", null);
-    });
-  if (res.ok) return res;
-  // A session URI may appear in provider error text; never relay that body.
-  await res.body?.cancel();
-  throw new GmailApiError(res.status, "resumable request failed", null);
 }

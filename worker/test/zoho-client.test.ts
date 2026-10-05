@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { FakeZoho } from "./fake-zoho";
 import { testEnv, testDeps } from "./test-env";
-import { seedUserAndAccount, seedAccessToken } from "./fixtures";
+import { seedUserAndAccount, seedAccessToken, retireSlot } from "./fixtures";
 import { zohoJson, ZohoApiError } from "../src/zoho/client";
 import { McpError } from "@zoho-mail-mcp/shared/errors";
 
@@ -10,6 +10,7 @@ async function setup(scope?: string) {
   const id = `a${++n}`;
   const z = await FakeZoho.create();
   const e = testEnv();
+  await retireSlot(e.DB, "u", "sarabi");
   await seedUserAndAccount(e.DB, { userId: "u", accountId: id, alias: `sarabi${n}`, slot: "sarabi" });
   z.accounts.set(`sub-${id}`, {
     accountId: `191000${n}`,

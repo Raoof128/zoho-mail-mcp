@@ -1,6 +1,5 @@
 import { BUILD_ID } from "./build-identity";
 import { assertInstallation } from "./operations/installation";
-import { recoverDeliveries } from "./operations/recovery-cron";
 import { OAuthProvider, type OAuthProviderOptions } from "@cloudflare/workers-oauth-provider";
 import { createMcpHandler } from "agents/mcp/server";
 import type { Env } from "./env";
@@ -163,8 +162,6 @@ export function createWorker(deps: Deps = defaultDeps): Worker {
           } catch {
             return;
           }
-          const now = Date.now();
-          await recoverDeliveries(env, deps, controller.scheduledTime, now);
           await runCron(env, Date.now());
           // Spec 5.5: settle delivery_unknown sends only on positive evidence in Sent.
           await probeDeliveries(env, deps, Date.now());

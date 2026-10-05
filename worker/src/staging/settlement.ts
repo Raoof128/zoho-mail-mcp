@@ -1,24 +1,13 @@
-import { clearPermit, permitStatement } from "../operations/recovery-state";
-/** Linked storage keeps its operation identity after consumption. No permit spans R2 I/O. */
+/**
+ * The old staging store's batch. The storage permit existed for Gmail protocol-2 sends, which were retired in M3
+ * Task 3.6, so no operation can need it any more; the store itself goes in M5.
+ */
 export async function storageBatch(
   db: D1Database,
-  handles: string[],
+  _handles: string[],
   statements: D1PreparedStatement[],
 ): Promise<D1Result[]> {
-  const ids = handles.length
-    ? await db
-        .prepare(
-          `SELECT DISTINCT o.id FROM staging_objects s JOIN operations o ON o.id=COALESCE(s.settlement_operation_id,s.reserved_by_operation_id) WHERE o.settlement_protocol=2 AND s.handle IN (${handles.map(() => "?").join(",")})`,
-        )
-        .bind(...handles)
-        .all<{ id: string }>()
-    : { results: [] };
-  const result = await db.batch([
-    ...ids.results.map((r) => permitStatement(db, r.id, "storage")),
-    ...statements,
-    ...ids.results.map((r) => clearPermit(db, r.id)),
-  ]);
-  return result.slice(ids.results.length, ids.results.length + statements.length);
+  return db.batch(statements);
 }
 export async function producerStopped(db: D1Database, key: string): Promise<boolean> {
   return Boolean(

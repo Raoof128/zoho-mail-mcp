@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { FakeZoho } from "./fake-zoho";
 import { testEnv, testDeps } from "./test-env";
-import { seedUserAndAccount, seedAccessToken } from "./fixtures";
+import { seedUserAndAccount, seedAccessToken, retireSlot } from "./fixtures";
 import { zohoJson, zohoFetch } from "../src/zoho/client";
 import { exchangeCode } from "../src/zoho/oidc";
 import { createWorker } from "../src/index";
@@ -14,6 +14,7 @@ async function setup() {
   const z = await FakeZoho.create();
   const e = testEnv();
   const Z = `19200${n}`;
+  await retireSlot(e.DB, "u", "sarabi");
   await seedUserAndAccount(e.DB, { userId: "u", accountId: id, alias: `sarabi${n}`, slot: "sarabi", zohoAccountId: Z });
   z.accounts.set(`sub-${id}`, { accountId: Z, primaryEmail: "sarabi@example.test", sendAs: [] });
   await seedAccessToken(e, { userId: "u", accountId: id, access: z.directToken(Z) });

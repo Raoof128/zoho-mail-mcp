@@ -98,3 +98,16 @@ export async function seedAccessToken(
     )
     .run();
 }
+
+/**
+ * One live account per slot per owner (migration 0002). Cases that seed a fresh account for the same owner and slot
+ * retire the previous case's account first, as a revoke would.
+ */
+export async function retireSlot(db: D1Database, userId: string, slot: "sarabi" | "rcp"): Promise<void> {
+  await db
+    .prepare(
+      "UPDATE accounts SET status = 'revoked', alias = 'old-' || id, is_default = 0 WHERE user_id = ? AND slot = ? AND status != 'revoked'",
+    )
+    .bind(userId, slot)
+    .run();
+}

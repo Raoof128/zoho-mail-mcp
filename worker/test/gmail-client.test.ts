@@ -4,7 +4,7 @@ import { FakeGoogle } from "./fake-google";
 import { FakeGmail } from "./fake-gmail";
 import { seedUserAndAccount, seedAccessToken } from "./fixtures";
 import { testDeps, testEnv } from "./test-env";
-import { gmailFetch, gmailJson, openResumableSession, putResumable } from "../src/google/gmail";
+import { gmailFetch, gmailJson } from "../src/google/gmail";
 import type { Deps } from "../src/deps";
 
 let g: FakeGoogle;
@@ -111,43 +111,6 @@ describe("gmailFetch", () => {
       status: 403,
       reason: "insufficientPermissions",
     });
-  });
-
-  it("media upload posts message/rfc822 to the upload host; the session is opened and the bytes are PUT", async () => {
-    const bytes = new Uint8Array(new TextEncoder().encode("From: a@b.test\r\n\r\nhi"));
-    const r1 = await gmailJson<{ id: string }>(e, deps, acct, {
-      method: "POST",
-      path: "messages/send",
-      upload: { kind: "media", contentType: "message/rfc822", bytes },
-      retry: "none",
-    });
-    expect(r1.id).toMatch(/^m/);
-    expect(gm.requests.at(-1)!.url).toBe(
-      "https://gmail.googleapis.com/upload/gmail/v1/users/me/messages/send?uploadType=media",
-    );
-    expect(gm.sent.at(-1)!.via).toBe("media");
-    // The two halves of the resumable protocol are separate calls: only the second moves message bytes.
-    const session = await openResumableSession(e, deps, acct, {
-      path: "messages/send",
-      contentType: "message/rfc822",
-      length: bytes.byteLength,
-    });
-    const start = gm.requests.at(-1)!;
-    expect(start.url).toBe(
-      "https://gmail.googleapis.com/resumable/upload/gmail/v1/users/me/messages/send?uploadType=resumable",
-    );
-    expect(start.headers.get("x-upload-content-type")).toBe("message/rfc822");
-    expect(start.headers.get("x-upload-content-length")).toBe(String(bytes.byteLength));
-    expect(session).toContain("upload_id=");
-    const put = await putResumable(e, deps, acct, session, {
-      endpoint: { kind: "send" },
-      contentType: "message/rfc822",
-      length: bytes.byteLength,
-      body: new Response(bytes).body!,
-    });
-    expect((await put.json<{ id: string }>()).id).toMatch(/^m/);
-    expect(gm.requests.at(-1)!.method).toBe("PUT");
-    expect(gm.sent.at(-1)!.via).toBe("resumable");
   });
 
   it("needs_reconnect accounts never reach Gmail", async () => {

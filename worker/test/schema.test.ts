@@ -98,9 +98,17 @@ it("binds an account to one of the two slots with its expected address and locat
   expect(row).toEqual({ slot: "sarabi", expected_primary_email: "sarabi@example.test", location: "au" });
 });
 
-// UNIQUE(user_id, slot) arrives with its own migration in M3 Task 3.6, once the Gmail-era tests that seed many
-// accounts per owner are deleted (M0 Task 0.2 ruling).
-it.todo("refuses a second account in the same slot for one owner");
+// Migration 0002 (M3 Task 3.6, carried from the M0 Task 0.2 ruling): one live account per slot per owner. A revoked
+// row may stay beside it as history; a reconnect reuses the slot's row.
+it("refuses a second live account in the same slot for one owner", async () => {
+  await seedUserAndAccount(env.DB, { userId: "u20", accountId: "a20", alias: "sarabi", slot: "sarabi" });
+  await expect(
+    seedUserAndAccount(env.DB, { userId: "u20", accountId: "a21", alias: "sarabi2", slot: "sarabi" }),
+  ).rejects.toThrow(/UNIQUE/);
+  await env.DB.prepare("UPDATE accounts SET status = 'revoked' WHERE id = 'a20'").run();
+  await seedUserAndAccount(env.DB, { userId: "u20", accountId: "a22", alias: "sarabi3", slot: "sarabi" });
+  await seedUserAndAccount(env.DB, { userId: "u21", accountId: "a23", alias: "sarabi", slot: "sarabi" }); // another owner
+});
 
 it("has no r2_key anywhere and a sealed_handles table owned by an account", async () => {
   const cols = await env.DB.prepare("PRAGMA table_info(staging_objects)").all<{ name: string }>();

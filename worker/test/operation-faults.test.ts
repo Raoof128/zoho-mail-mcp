@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createWorker } from "../src/index";
 import { FakeZoho } from "./fake-zoho";
 import { mintToken } from "./browser";
-import { seedUserAndAccount, seedAccessToken } from "./fixtures";
+import { seedUserAndAccount, seedAccessToken, retireSlot } from "./fixtures";
 import { callTool } from "./mcp-client";
 import { testDeps, testEnv } from "./test-env";
 import { approvePending } from "../src/approval/pending";
@@ -38,6 +38,7 @@ async function rig(account: string, intercept: (req: Request, pass: () => Promis
     return intercept(request, () => z.fetch(request));
   };
   const worker = createWorker(testDeps(z, { zohoFetch }));
+  await retireSlot(e.DB, U, "sarabi");
   await seedUserAndAccount(e.DB, {
     userId: U,
     accountId: account,

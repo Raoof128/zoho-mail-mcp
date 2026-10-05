@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import { createWorker } from "../src/index";
 import { FakeZoho } from "./fake-zoho";
 import { mintToken } from "./browser";
-import { seedUserAndAccount, seedAccessToken } from "./fixtures";
+import { seedUserAndAccount, seedAccessToken, retireSlot } from "./fixtures";
 import { callTool } from "./mcp-client";
 import { testDeps, testEnv } from "./test-env";
 import { setPolicy } from "../src/policy/engine";
@@ -30,9 +30,7 @@ async function rig() {
     return z.fetch(req);
   };
   const worker = createWorker(testDeps(z, { zohoFetch }));
-  await e.DB.prepare("UPDATE accounts SET alias = 'old-' || id, is_default = 0 WHERE user_id = ? AND alias = 'sarabi'")
-    .bind(U)
-    .run();
+  await retireSlot(e.DB, U, "sarabi");
   await seedUserAndAccount(e.DB, {
     userId: U,
     accountId,
