@@ -1,7 +1,7 @@
 import { env } from "cloudflare:test";
 import { describe, it, expect, beforeAll } from "vitest";
 import { createWorker } from "../src/index";
-import { FakeGoogle } from "./fake-google";
+import { FakeZoho } from "./fake-zoho";
 import { Browser, csrfFrom, mintToken } from "./browser";
 import { seedUserAndAccount, seedAccessToken } from "./fixtures";
 import { callTool, modernCall } from "./mcp-client";
@@ -9,12 +9,12 @@ import { testDeps, testEnv } from "./test-env";
 import { getPending } from "../src/approval/pending";
 
 const e = testEnv({ OWNER_ZOHO_SUBS: "owner-sub,other-sub" });
-let g: FakeGoogle;
+let z: FakeZoho;
+const Z = "1960001";
 let worker: ReturnType<typeof createWorker>;
 let token: string;
 let otherToken: string;
 let browser: Browser;
-const gm = () => g.gmail;
 const URL_CAPS = { elicitation: { url: {} } };
 const FORM_CAPS = { elicitation: { form: {} } };
 const pendingCount = async () =>
@@ -22,25 +22,48 @@ const pendingCount = async () =>
     .n as number;
 
 beforeAll(async () => {
-  g = await FakeGoogle.create();
-  worker = createWorker(testDeps(g));
-  await seedUserAndAccount(env.DB, { userId: "owner-sub", accountId: "ea", alias: "personal", isDefault: true });
-  await seedUserAndAccount(env.DB, { userId: "owner-sub", accountId: "eb", alias: "cold" });
-  await seedUserAndAccount(env.DB, { userId: "other-sub", accountId: "ec", alias: "personal", isDefault: true });
-  await seedAccessToken(e, { userId: "owner-sub", accountId: "ea" });
-  const minted = await mintToken(worker, e, g, { scope: "mcp" });
+  z = await FakeZoho.create();
+  worker = createWorker(testDeps(z));
+  // Ported to Zoho in M4 Task 4.1 (trash_message is the approval vehicle and is Zoho-backed now).
+  await seedUserAndAccount(env.DB, {
+    userId: "owner-sub",
+    accountId: "ea",
+    alias: "personal",
+    slot: "sarabi",
+    zohoAccountId: Z,
+    email: "sarabi@example.test",
+    isDefault: true,
+  });
+  await seedUserAndAccount(env.DB, { userId: "owner-sub", accountId: "eb", alias: "cold", slot: "rcp" });
+  await seedUserAndAccount(env.DB, {
+    userId: "other-sub",
+    accountId: "ec",
+    alias: "personal",
+    slot: "sarabi",
+    isDefault: true,
+  });
+  z.accounts.set("sub-ea", { accountId: Z, primaryEmail: "sarabi@example.test", sendAs: [] });
+  await seedAccessToken(e, { userId: "owner-sub", accountId: "ea", access: z.directToken(Z) });
+  const minted = await mintToken(worker, e, z as never, { scope: "mcp" });
   token = minted.accessToken;
   browser = minted.browser;
-  otherToken = (await mintToken(worker, e, g, { scope: "mcp", sub: "other-sub", email: "other@example.test" }))
+  otherToken = (await mintToken(worker, e, z as never, { scope: "mcp", sub: "other-sub", email: "other@example.test" }))
     .accessToken;
 });
 
-const seed = () => gm().seedMessage({ from: "a@x.test", to: ["me@x.test"], subject: "el", text: "t" });
+const seed = () =>
+  z.mail.seedMessage(Z, {
+    folder: "Inbox",
+    from: "a@x.test",
+    to: ["sarabi@example.test"],
+    subject: "el",
+    content: "t",
+  });
 
 describe("legacy era", () => {
   it("returns the approval URL as text and never an input_required result", async () => {
     const m = seed();
-    const r = await callTool(worker, e, token, "trash_message", { account: "personal", message_id: m.id });
+    const r = await callTool(worker, e, token, "trash_message", { account: "personal", message_id: m.messageId });
     expect(r.result).toMatchObject({ status: "pending_approval", approval: { mode: "url" } });
     expect(r.json.result.resultType).toBeUndefined();
   });
@@ -54,7 +77,7 @@ describe("modern era with elicitation.url", () => {
       e,
       token,
       "trash_message",
-      { account: "personal", message_id: m.id },
+      { account: "personal", message_id: m.messageId },
       { capabilities: URL_CAPS },
     );
     expect(first.status).toBe(200);
@@ -76,11 +99,11 @@ describe("modern era with elicitation.url", () => {
       e,
       token,
       "trash_message",
-      { account: "personal", message_id: m.id },
+      { account: "personal", message_id: m.messageId },
       { capabilities: URL_CAPS, inputResponses: { approval: { action: "accept" } }, requestState: state },
     );
-    expect(retry.result).toMatchObject({ status: "executed", action_id: id, message: { id: m.id } });
-    expect(gm().messages.get(m.id)!.labelIds).toContain("TRASH");
+    expect(retry.result).toMatchObject({ status: "executed", action_id: id, updated: [m.messageId] });
+    expect(z.mail.get(Z, m.messageId)!.folderId).toBe(z.mail.folderId(Z, "Trash"));
     expect((await getPending(env.DB, id, "owner-sub"))!).toMatchObject({
       state: "executed",
       approved_via: "browser",
@@ -94,7 +117,7 @@ describe("modern era with elicitation.url", () => {
       e,
       token,
       "trash_message",
-      { account: "personal", message_id: m.id },
+      { account: "personal", message_id: m.messageId },
       { capabilities: FORM_CAPS },
     );
     expect(r.result).toMatchObject({ status: "pending_approval" });
@@ -107,7 +130,7 @@ describe("modern era with elicitation.url", () => {
       e,
       token,
       "trash_message",
-      { account: "personal", message_id: m.id },
+      { account: "personal", message_id: m.messageId },
       { capabilities: URL_CAPS },
     );
     const state: string = first.inputRequired.requestState;
@@ -117,7 +140,7 @@ describe("modern era with elicitation.url", () => {
       e,
       token,
       "trash_message",
-      { account: "personal", message_id: m.id },
+      { account: "personal", message_id: m.messageId },
       { capabilities: URL_CAPS, inputResponses: { approval: { action: "accept" } }, requestState: state },
     );
     expect(waited.result).toMatchObject({ status: "pending_approval", action_id: id });
@@ -143,7 +166,7 @@ describe("adversarial (spec 4.7)", () => {
       e,
       token,
       "trash_message",
-      { account: "personal", message_id: m.id },
+      { account: "personal", message_id: m.messageId },
       { capabilities: URL_CAPS },
     );
     return {
@@ -154,7 +177,7 @@ describe("adversarial (spec 4.7)", () => {
   }
   it("the routing headers are required and cross-checked: missing or mismatched Mcp-Method or Mcp-Name is refused before any handler", async () => {
     const m = seed();
-    const requests = gm().requests.length;
+    const requests = z.mail.requests.length;
     const pending = await pendingCount();
     for (const headers of [
       { "mcp-method": null },
@@ -167,14 +190,14 @@ describe("adversarial (spec 4.7)", () => {
         e,
         token,
         "trash_message",
-        { account: "personal", message_id: m.id },
+        { account: "personal", message_id: m.messageId },
         { capabilities: URL_CAPS, headers },
       );
       expect(r.status).toBe(400);
       // Measured: the SDK answers -32020 for a header/body mismatch, not the -32602 the plan predicted.
       expect(r.error?.code).toBe(-32020);
     }
-    expect(gm().requests.length).toBe(requests);
+    expect(z.mail.requests.length).toBe(requests);
     expect(await pendingCount()).toBe(pending);
   });
   it("requestState tampered one field at a time is refused before the handler runs", async () => {
@@ -199,13 +222,13 @@ describe("adversarial (spec 4.7)", () => {
         e,
         token,
         "trash_message",
-        { account: "personal", message_id: m.id },
+        { account: "personal", message_id: m.messageId },
         { capabilities: URL_CAPS, inputResponses: { approval: { action: "accept" } }, requestState: bad },
       );
       expect(r.error).toMatchObject({ code: -32602, message: "Invalid or expired requestState" });
     }
     expect((await getPending(env.DB, id, "owner-sub"))!.state).toBe("pending");
-    expect(gm().messages.get(m.id)!.labelIds).not.toContain("TRASH");
+    expect(z.mail.get(Z, m.messageId)!.folderId).not.toBe(z.mail.folderId(Z, "Trash"));
   });
   it("a valid requestState presented by another owner's token is refused by the binding", async () => {
     const { m, state } = await pendingWithState();
@@ -214,7 +237,7 @@ describe("adversarial (spec 4.7)", () => {
       e,
       otherToken,
       "trash_message",
-      { account: "personal", message_id: m.id },
+      { account: "personal", message_id: m.messageId },
       { capabilities: URL_CAPS, inputResponses: { approval: { action: "accept" } }, requestState: state },
     );
     expect(r.error).toMatchObject({ code: -32602 });
@@ -227,7 +250,7 @@ describe("adversarial (spec 4.7)", () => {
       e,
       token,
       "trash_message",
-      { account: "personal", message_id: other.id },
+      { account: "personal", message_id: other.messageId },
       { capabilities: URL_CAPS, inputResponses: { approval: { action: "accept" } }, requestState: state },
     );
     expect(r.result).toMatchObject({ error: "payload_mismatch" });
@@ -236,8 +259,8 @@ describe("adversarial (spec 4.7)", () => {
     ).first<any>();
     expect(row).toEqual({ decision: "payload_mismatch", pending_id: id });
     expect((await getPending(env.DB, id, "owner-sub"))!.state).toBe("pending");
-    expect(gm().messages.get(m.id)!.labelIds).not.toContain("TRASH");
-    expect(gm().messages.get(other.id)!.labelIds).not.toContain("TRASH");
+    expect(z.mail.get(Z, m.messageId)!.folderId).not.toBe(z.mail.folderId(Z, "Trash"));
+    expect(z.mail.get(Z, other.messageId)!.folderId).not.toBe(z.mail.folderId(Z, "Trash"));
   });
   it("a requestState for one tool cannot resume a different tool, even with matching arguments", async () => {
     const { m, state } = await pendingWithState();
@@ -246,7 +269,7 @@ describe("adversarial (spec 4.7)", () => {
       e,
       token,
       "mark_message_spam",
-      { account: "personal", message_id: m.id },
+      { account: "personal", message_id: m.messageId },
       { capabilities: URL_CAPS, inputResponses: { approval: { action: "accept" } }, requestState: state },
     );
     expect(r.result).toMatchObject({ error: "payload_mismatch" });
@@ -254,7 +277,7 @@ describe("adversarial (spec 4.7)", () => {
   it("a decline cancels; execute_pending under another owner is unknown; the approval page under another session is refused", async () => {
     const { m, id, state } = await pendingWithState();
     const other = new Browser(worker, e);
-    await other.login(g, { sub: "other-sub", email: "other@example.test" });
+    await other.login(z, { sub: "other-sub", email: "other@example.test" });
     expect((await other.get(`/approve/${id}`)).status).toBe(404);
     expect((await callTool(worker, e, otherToken, "execute_pending", { action_id: id })).result.error).toBe(
       "pending_not_approved",
@@ -264,7 +287,7 @@ describe("adversarial (spec 4.7)", () => {
       e,
       token,
       "trash_message",
-      { account: "personal", message_id: m.id },
+      { account: "personal", message_id: m.messageId },
       { capabilities: URL_CAPS, inputResponses: { approval: { action: "decline" } }, requestState: state },
     );
     expect(r.result).toMatchObject({ error: "pending_not_approved" });

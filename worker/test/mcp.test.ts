@@ -22,12 +22,15 @@ beforeAll(async () => {
 const ALL_TOOLS = [
   "apply_sensitive_message_label",
   "apply_sensitive_thread_label",
+  "archive_message",
+  "archive_thread",
   "cancel_pending",
   "connect_account",
   "create_draft",
   "create_label",
   "delete_label",
   "execute_pending",
+  "flag_message",
   "forward",
   "get_draft",
   "get_message",
@@ -41,7 +44,11 @@ const ALL_TOOLS = [
   "list_labels",
   "list_pending",
   "mark_message_spam",
+  "mark_read",
   "mark_thread_spam",
+  "mark_unread",
+  "move_message",
+  "move_thread",
   "open_policy_editor",
   "reply",
   "search_messages",
@@ -50,6 +57,8 @@ const ALL_TOOLS = [
   "send_message",
   "trash_message",
   "trash_thread",
+  "unarchive_message",
+  "unarchive_thread",
   "unlabel_message",
   "unlabel_thread",
   "unmark_message_spam",
@@ -104,7 +113,7 @@ describe("protocol", () => {
     const list = await rpc(worker, testEnv(), token, "tools/list", {}, 2);
     const names = (list.json?.result?.tools ?? []).map((t: { name: string }) => t.name).sort();
     expect(names).toEqual(ALL_TOOLS);
-    expect(names).toHaveLength(39); // M2: +list_folders, +search_messages; download_attachment returns in M5
+    expect(names).toHaveLength(48); // M2 +2 read; M4 +9 organise; download_attachment returns in M5 (49)
     const byName = Object.fromEntries(
       (list.json.result.tools as { name: string; annotations?: Record<string, boolean> }[]).map((t) => [
         t.name,

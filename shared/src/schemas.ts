@@ -61,48 +61,46 @@ export const LegacyGmailId = z
   .min(1)
   .max(256)
   .regex(/^[A-Za-z0-9_-]+$/);
-export const LabelId = LegacyGmailId;
+export const LabelId = ZohoId;
 export const LabelName = z.string().min(1).max(225);
-export const LabelListVisibility = z.enum(["LABEL_SHOW", "LABEL_SHOW_IF_UNREAD", "LABEL_HIDE"]);
-export const MessageListVisibility = z.enum(["SHOW", "HIDE"]);
 export const LabelOption = z.enum(["TRASH", "SPAM"]);
 export const HexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 
-export const MessageTargetInput = z.object({ account: AccountAlias, message_id: LegacyGmailId });
-export const ThreadTargetInput = z.object({ account: AccountAlias, thread_id: LegacyGmailId });
+export const MessageTargetInput = z.object({ account: AccountAlias, message_id: ZohoId, folder_id: ZohoId.optional() });
+export const ThreadTargetInput = z.object({ account: AccountAlias, thread_id: ZohoId });
 const LabelIds = z.array(LabelId).min(1).max(100);
 export const LabelMessageInput = MessageTargetInput.extend({ label_ids: LabelIds });
 export const UnlabelMessageInput = LabelMessageInput;
 export const LabelThreadInput = ThreadTargetInput.extend({ label_ids: LabelIds });
 export const UnlabelThreadInput = LabelThreadInput;
+/** Overlap and emptiness are checked by the tool; the schema stays a plain object so the gate can strip `account`. */
 export const UpdateMessageLabelsInput = MessageTargetInput.extend({
   add_label_ids: z.array(LabelId).max(100).default([]),
   remove_label_ids: z.array(LabelId).max(100).default([]),
-})
-  .refine((v) => v.add_label_ids.length + v.remove_label_ids.length > 0, {
-    message: "add or remove at least one label",
-  })
-  .refine((v) => !v.add_label_ids.some((id) => v.remove_label_ids.includes(id)), {
-    message: "a label cannot be both added and removed",
-  });
+});
 export const ApplySensitiveMessageLabelInput = MessageTargetInput.extend({ label_option: LabelOption });
 export const ApplySensitiveThreadLabelInput = ThreadTargetInput.extend({ label_option: LabelOption });
+export const FlagMessageInput = MessageTargetInput.extend({
+  flag: z.enum(["info", "important", "followup", "flag_not_set"]),
+});
+export const MoveMessageInput = MessageTargetInput.extend({ folder: ZohoFolderName });
+export const MoveThreadInput = ThreadTargetInput.extend({ folder: ZohoFolderName });
+/** At least one id; checked by the tool (a refined schema cannot have `account` stripped). */
+export const MarkReadInput = z.object({
+  account: AccountAlias,
+  message_ids: z.array(ZohoId).max(100).default([]),
+  thread_ids: z.array(ZohoId).max(100).default([]),
+});
 export const CreateLabelInput = z.object({
   account: AccountAlias,
   display_name: LabelName,
-  label_list_visibility: LabelListVisibility.optional(),
-  message_list_visibility: MessageListVisibility.optional(),
-  text_color: HexColor.optional(),
-  background_color: HexColor.optional(),
+  color: HexColor.optional(),
 });
 export const UpdateLabelInput = z.object({
   account: AccountAlias,
   label_id: LabelId,
   display_name: LabelName.optional(),
-  label_list_visibility: LabelListVisibility.optional(),
-  message_list_visibility: MessageListVisibility.optional(),
-  text_color: HexColor.optional(),
-  background_color: HexColor.optional(),
+  color: HexColor.optional(),
 });
 export const DeleteLabelInput = z.object({ account: AccountAlias, label_id: LabelId });
 

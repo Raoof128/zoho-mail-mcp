@@ -48,7 +48,7 @@ export const DEFAULT_POLICY: Record<Action, Level | "browser"> = {
   "send.draft": "allow",
   "send.forward": "ask",
   // ask until M4 Task 4.1 adds +destructive on delete_label (security review of M0 Task 0.4).
-  "label.manage": "ask",
+  "label.manage": "allow", // delete_label carries +destructive, which raises it to ask
   "label.apply": "allow",
   "folder.move": "allow",
   "flag.set": "allow",
