@@ -30,12 +30,14 @@ const open = async (env: Env, run: ExecRun): Promise<void> => {
   if (run.operationId) await beginOperation(env.DB, run.operationId);
 };
 /** Trash and Spam have their own tools and policy (trash.move, spam.mark ask); a plain move must not reach them. */
-const SYSTEM_GUARDED = new Set(["trash", "spam"]);
+// Drafts too: a message moved into Drafts could then be trashed by update_draft or send_draft under draft.write
+// (security review of ba631b3).
+const SYSTEM_GUARDED = new Set(["trash", "spam", "drafts"]);
 function refuseGuardedName(folder: string): void {
   if (SYSTEM_GUARDED.has(folder.trim().toLowerCase()))
     throw new McpError(
       "policy_denied",
-      `policy_denied: moving to ${folder} goes through trash_message, trash_thread, mark_message_spam or mark_thread_spam`,
+      `policy_denied: moving to ${folder} is not allowed here: use trash_message, trash_thread, mark_message_spam, mark_thread_spam or create_draft`,
     );
 }
 const rw = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;
@@ -246,8 +248,8 @@ export function registerOrganiseTools(
     refuseGuardedName(args.folder);
     const f = await folderByName(e, d, a, args.folder);
     const sys = await systemFolders(e, d, a);
-    if (f.folderId === sys.trash || f.folderId === sys.spam)
-      refuseGuardedName(f.folderId === sys.trash ? "Trash" : "Spam");
+    if (f.folderId === sys.trash || f.folderId === sys.spam || f.folderId === sys.drafts)
+      refuseGuardedName(f.folderId === sys.trash ? "Trash" : f.folderId === sys.spam ? "Spam" : "Drafts");
     return { destfolderId: f.folderId };
   };
   t({
@@ -372,6 +374,11 @@ export function registerOrganiseTools(
   });
   t({
     name: "apply_sensitive_message_label",
+    // SPAM must be decided by spam.mark, not by this tool's trash.move (security review of ba631b3).
+    check: (a) => {
+      if (a.label_option === "SPAM")
+        throw new McpError("policy_denied", "policy_denied: use mark_message_spam to move to Spam");
+    },
     destructive: true,
     description: "TRASH or SPAM a message (same as trash_message or mark_message_spam).",
     input: S.ApplySensitiveMessageLabelInput,
@@ -383,6 +390,11 @@ export function registerOrganiseTools(
   });
   t({
     name: "apply_sensitive_thread_label",
+    // SPAM must be decided by spam.mark, not by this tool's trash.move (security review of ba631b3).
+    check: (a) => {
+      if (a.label_option === "SPAM")
+        throw new McpError("policy_denied", "policy_denied: use mark_thread_spam to move to Spam");
+    },
     destructive: true,
     description: "TRASH or SPAM a thread.",
     input: S.ApplySensitiveThreadLabelInput,
