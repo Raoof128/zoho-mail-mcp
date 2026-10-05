@@ -188,6 +188,15 @@ export async function zohoFetch(env: Env, deps: Deps, acct: ZohoAcct, req: ZohoR
   }
 }
 
+/**
+ * For mutations whose documented answer is `{status:{code,description}}` with no data (move, flag, archive, read,
+ * spam, labels on messages): a 2xx is success and the body is discarded (final review of M4, C1).
+ */
+export async function zohoOk(env: Env, deps: Deps, acct: ZohoAcct, req: ZohoRequest): Promise<void> {
+  const res = await zohoFetch(env, deps, acct, req);
+  await res.body?.cancel();
+}
+
 export async function zohoJson<T>(env: Env, deps: Deps, acct: ZohoAcct, req: ZohoRequest): Promise<T> {
   const res = await zohoFetch(env, deps, acct, req);
   const body = (await res.json().catch(() => null)) as { data?: T } | null;

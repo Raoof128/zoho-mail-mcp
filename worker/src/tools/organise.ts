@@ -32,7 +32,9 @@ const open = async (env: Env, run: ExecRun): Promise<void> => {
 /** Trash and Spam have their own tools and policy (trash.move, spam.mark ask); a plain move must not reach them. */
 // Drafts too: a message moved into Drafts could then be trashed by update_draft or send_draft under draft.write
 // (security review of ba631b3).
-const SYSTEM_GUARDED = new Set(["trash", "spam", "drafts"]);
+// Sent, Outbox and Templates too (final review of M4, I3): Sent is the delivery probe's evidence, and Zoho may act
+// on a message moved into Outbox or Templates.
+const SYSTEM_GUARDED = new Set(["trash", "spam", "drafts", "sent", "outbox", "templates"]);
 function refuseGuardedName(folder: string): void {
   if (SYSTEM_GUARDED.has(folder.trim().toLowerCase()))
     throw new McpError(
@@ -108,11 +110,15 @@ export function updateTool<Sch extends z.ZodObject<z.ZodRawShape>>(
         throw new McpError("invalid_header", "invalid_header: nothing to update");
       let remembered: Record<string, unknown> = {};
       if (s.remember && s.target === "message" && args.message_id) {
+        // The folder Zoho reports for the message, never the caller's folder_id hint (final review of M4, I1).
         const ref = await resolveRef(e, d, a, {
           message_id: args.message_id as string,
           folder_id: args.folder_id as string | undefined,
         });
-        remembered = { previous_folder_id: ref.folderId };
+        const row = ref.row ?? (await mail.messageDetails(e, d, a, ref.folderId, ref.messageId));
+        const sys = await systemFolders(e, d, a);
+        if (![sys.trash, sys.spam, sys.drafts].includes(row.folderId))
+          remembered = { previous_folder_id: row.folderId };
       }
       const { mode: modeOverride, ...rest } = extra as { mode?: mail.UpdateMode } & Record<string, unknown>;
       const mode = modeOverride ?? s.mode;
@@ -248,8 +254,11 @@ export function registerOrganiseTools(
     refuseGuardedName(args.folder);
     const f = await folderByName(e, d, a, args.folder);
     const sys = await systemFolders(e, d, a);
-    if (f.folderId === sys.trash || f.folderId === sys.spam || f.folderId === sys.drafts)
-      refuseGuardedName(f.folderId === sys.trash ? "Trash" : f.folderId === sys.spam ? "Spam" : "Drafts");
+    if (
+      [sys.trash, sys.spam, sys.drafts, sys.sent].includes(f.folderId) ||
+      SYSTEM_GUARDED.has((f.folderType ?? "").toLowerCase())
+    )
+      refuseGuardedName(f.folderName);
     return { destfolderId: f.folderId };
   };
   t({
@@ -304,15 +313,21 @@ export function registerOrganiseTools(
     const sys = await systemFolders(e, d, a);
     const prev = args.message_id
       ? await e.DB.prepare(
-          "SELECT result_json FROM operations WHERE user_id=? AND account_id=? AND action='trash.move' AND result_json LIKE ? ORDER BY created_at DESC LIMIT 1",
+          // Only executed trash records that stored a source folder for exactly this message (final review of M4, I2).
+          `SELECT result_json FROM operations WHERE user_id=? AND account_id=? AND action='trash.move' AND state='executed'
+             AND json_extract(result_json, '$.previous_folder_id') IS NOT NULL
+             AND EXISTS (SELECT 1 FROM json_each(json_extract(result_json, '$.updated')) WHERE value = ?)
+           ORDER BY created_at DESC LIMIT 1`,
         )
-          .bind(a.userId, a.accountId, `%"${args.message_id}"%`)
+          .bind(a.userId, a.accountId, args.message_id)
           .first<{ result_json: string }>()
       : null;
     const previous = prev
       ? (JSON.parse(prev.result_json) as { previous_folder_id?: string }).previous_folder_id
       : undefined;
-    return { destfolderId: previous ?? sys.inbox };
+    // A recorded folder is restored only if it is still a safe destination; otherwise Inbox.
+    const safe = previous && ![sys.trash, sys.spam, sys.drafts].includes(previous) ? previous : sys.inbox;
+    return { destfolderId: safe };
   };
   t({
     name: "untrash_message",
@@ -374,34 +389,24 @@ export function registerOrganiseTools(
   });
   t({
     name: "apply_sensitive_message_label",
-    // SPAM must be decided by spam.mark, not by this tool's trash.move (security review of ba631b3).
-    check: (a) => {
-      if (a.label_option === "SPAM")
-        throw new McpError("policy_denied", "policy_denied: use mark_message_spam to move to Spam");
-    },
     destructive: true,
-    description: "TRASH or SPAM a message (same as trash_message or mark_message_spam).",
+    description: "Move a message to Trash (label_option TRASH; for Spam use mark_message_spam). Same as trash_message.",
     input: S.ApplySensitiveMessageLabelInput,
     action: "trash.move",
     mode: "moveMessage",
     target: "message",
-    extra: async (e, d, a, args) => (args.label_option === "SPAM" ? { mode: "moveToSpam" } : toTrash(e, d, a)),
+    extra: (e, d, a) => toTrash(e, d, a),
     summary: (a) => `${a.label_option} message ${a.message_id}`,
   });
   t({
     name: "apply_sensitive_thread_label",
-    // SPAM must be decided by spam.mark, not by this tool's trash.move (security review of ba631b3).
-    check: (a) => {
-      if (a.label_option === "SPAM")
-        throw new McpError("policy_denied", "policy_denied: use mark_thread_spam to move to Spam");
-    },
     destructive: true,
-    description: "TRASH or SPAM a thread.",
+    description: "Move a thread to Trash (label_option TRASH; for Spam use mark_thread_spam).",
     input: S.ApplySensitiveThreadLabelInput,
     action: "trash.move",
     mode: "moveMessage",
     target: "thread",
-    extra: async (e, d, a, args) => (args.label_option === "SPAM" ? { mode: "moveToSpam" } : toTrash(e, d, a)),
+    extra: (e, d, a) => toTrash(e, d, a),
     summary: (a) => `${a.label_option} thread ${a.thread_id}`,
   });
   defineTool(server, toolContext, env, {

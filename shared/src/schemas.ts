@@ -53,7 +53,8 @@ export const ZohoId = z.string().regex(/^\d{1,32}$/);
 export const ZohoFolderName = z.string().min(1).max(255);
 export const LabelId = ZohoId;
 export const LabelName = z.string().min(1).max(225);
-export const LabelOption = z.enum(["TRASH", "SPAM"]);
+/** TRASH only: Spam goes through mark_*_spam so spam.mark decides it (final review of M4, I5). */
+export const LabelOption = z.enum(["TRASH"]);
 export const HexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 
 export const MessageTargetInput = z.object({ account: AccountAlias, message_id: ZohoId, folder_id: ZohoId.optional() });

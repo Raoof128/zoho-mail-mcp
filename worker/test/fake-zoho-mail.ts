@@ -396,7 +396,11 @@ export class FakeZohoMail {
       const tids = (b.threadId as string[] | undefined) ?? [];
       const targets = mine.filter((m) => ids.includes(m.messageId) || tids.includes(m.threadId));
       const mode = String(b.mode);
-      const ok = () => Response.json({ status: { code: 200, description: "success" }, data: { status: "success" } });
+      // The saved official pages answer every update with status only, no data (final review of M4, C1).
+      const ok = () => Response.json({ status: { code: 200, description: "success" } });
+      // Thread labels go to /updatethread; every other thread action is /updatemessage with threadId (saved pages).
+      const labelMode = mode === "applyLabel" || mode === "removeLabel" || mode === "removeAllLabels";
+      if (path === "/updatethread" && !labelMode) return this.err(400, "INVALID_METHOD");
       switch (mode) {
         case "markAsRead":
           targets.forEach((m) => (m.status = "read"));

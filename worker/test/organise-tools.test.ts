@@ -14,6 +14,7 @@ describe("organising tools (5.4)", () => {
       content: "x",
     });
     const lbl = z.mail.seedLabel(Z, "Clients");
+    const clients = z.mail.seedFolder(Z, "Clients");
     // mark_read and mark_unread take message_ids, not message_id.
     const t = (name: string, args: Record<string, unknown>) =>
       callTool(e, d, "u", name, {
@@ -30,7 +31,7 @@ describe("organising tools (5.4)", () => {
       ["mark_unread", { message_ids: [m.messageId] }, (g) => g!.status, "unread"],
       ["archive_message", {}, (g) => g!.archived, true],
       ["unarchive_message", {}, (g) => g!.archived, false],
-      ["move_message", { folder: "Sent" }, (g) => g!.folderId, z.mail.folderId(Z, "Sent")],
+      ["move_message", { folder: "Clients" }, (g) => g!.folderId, clients.folderId], // Sent is refused (M4 review I3)
     ];
     for (const [name, args, read, want] of cases) {
       const before = puts();

@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { Deps } from "../deps";
 import type { Env } from "../env";
-import { zohoJson, zohoStream, type ZohoAcct } from "./client";
+import { zohoJson, zohoOk, zohoStream, type ZohoAcct } from "./client";
 
 const FLAG_BY_ID: Record<string, string> = { "0": "flag_not_set", "1": "info", "2": "important", "3": "followup" };
 /** Zoho escapes address and summary text in list rows (`&quot;rebecca&quot;&lt;rebecca@zylker.com&gt;`). */
@@ -227,13 +227,7 @@ export const updateMessages = (
   mode: UpdateMode,
   messageId: string[],
   extra: Record<string, unknown> = {},
-) =>
-  zohoJson<unknown>(env, deps, a, {
-    method: "PUT",
-    path: "updatemessage",
-    json: { mode, messageId, ...extra },
-    retry: "safe",
-  });
+) => zohoOk(env, deps, a, { method: "PUT", path: "updatemessage", json: { mode, messageId, ...extra }, retry: "safe" });
 export const updateThreads = (
   env: Env,
   deps: Deps,
@@ -242,9 +236,11 @@ export const updateThreads = (
   threadId: string[],
   extra: Record<string, unknown> = {},
 ) =>
-  zohoJson<unknown>(env, deps, a, {
+  // Saved pages: thread labels use /updatethread; every other thread action is /updatemessage with threadId.
+  zohoOk(env, deps, a, {
     method: "PUT",
-    path: "updatethread",
+    path:
+      mode === "applyLabel" || mode === "removeLabel" || mode === "removeAllLabels" ? "updatethread" : "updatemessage",
     json: { mode, threadId, ...extra },
     retry: "safe",
   });
@@ -275,6 +271,6 @@ export const updateLabel = (
   a: ZohoAcct,
   labelId: string,
   body: { labelName?: string; color?: string },
-) => zohoJson<unknown>(env, deps, a, { method: "PUT", path: `labels/${labelId}`, json: body, retry: "safe" });
+) => zohoOk(env, deps, a, { method: "PUT", path: `labels/${labelId}`, json: body, retry: "safe" });
 export const deleteLabel = (env: Env, deps: Deps, a: ZohoAcct, labelId: string) =>
   zohoStream(env, deps, a, { method: "DELETE", path: `labels/${labelId}`, retry: "none" });
