@@ -70,6 +70,9 @@ if [ ! -f "$HOME/.config/zoho-mail-mcp/config.json" ]; then
   CLIENT_ID="$(curl -fsSL "https://$HOST/companion-client-id" || true)"
   [ -n "$CLIENT_ID" ] || fail "the server has not registered the companion yet. Open https://$HOST/accounts, register it, then run this line again"
   "$COMPANION" init --server "https://$HOST" --client-id "$CLIENT_ID"
+fi
+# Outside the first-run block: a login that failed last time (browser closed, timeout) is retried now.
+if ! "$COMPANION" status >/dev/null 2>&1; then
   say "Opening your browser to approve the companion. Sign in with Zoho if asked."
   "$COMPANION" login
 fi

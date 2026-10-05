@@ -1,5 +1,14 @@
 import { it, expect } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, existsSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  readFileSync,
+  readdirSync,
+  existsSync,
+  statSync,
+  linkSync,
+} from "node:fs";
 import { createHash } from "node:crypto";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -176,4 +185,43 @@ it("cleans an expired snapshot and a stale reservation at startup", async () => 
   const check = new Journal(p.journal);
   expect(check.snapshotReservations()).toEqual([]);
   check.close();
+});
+
+it("finishes a publish interrupted between link and unlink instead of leaving every later save blocked (final review I2)", async () => {
+  const { base, p } = await initialised();
+  const bytes = Buffer.from("linked");
+  const sha = createHash("sha256").update(bytes).digest("hex");
+  const out = join(base, "out");
+  const journal = new Journal(p.journal);
+  const files = new SafeFiles({ attachments: { path: out, read: false, write: true } }, p.snapshots);
+  const saves = new SaveReceipts(files, journal);
+  const handle = "sh_" + "l".repeat(43);
+  const prepared = saves.prepare("s", handle, "attachments", "l.txt");
+  // The state a crash leaves after linkSync(temp, final) and before unlinkSync(temp).
+  const temp = join(out, prepared.temporary!);
+  writeFileSync(temp, bytes, { mode: 0o600 });
+  const st = statSync(temp);
+  const identity = { size: bytes.length, sha256: sha, device: st.dev, inode: st.ino };
+  linkSync(temp, join(out, "l.txt"));
+  journal.put(
+    "save:s",
+    handle,
+    SafeFiles.digest(Buffer.from("attachments\0l.txt")),
+    JSON.stringify({
+      ...prepared,
+      state: "verified",
+      created: { ...identity, path: prepared.temporary },
+      file: { ...identity, path: "l.txt" },
+    }),
+  );
+  journal.close();
+  const n = new InProcessNative({ paths: p, keychain: new Map() });
+  const ctx = { scope: "s", handle, root: "attachments", path: "l.txt" };
+  expect(((await n.call({ op: "save.prepare", ...ctx })).meta as { state: string }).state).toBe("published");
+  expect(existsSync(temp)).toBe(false);
+  expect(statSync(join(out, "l.txt")).nlink).toBe(1);
+  // The save budget is free again: another handle can save.
+  const other = { ...ctx, handle: "sh_" + "m".repeat(43), path: "m.txt" };
+  expect(((await n.call({ op: "save.prepare", ...other })).meta as { state: string }).state).toBe("prepared");
+  n.close();
 });

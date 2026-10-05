@@ -59,6 +59,8 @@ export class SaveReceipts {
     if (!row) return null;
     if (row.requestHash !== this.requestHash(root, relative)) refuse("idempotency_conflict");
     const receipt = parse(row.payload);
+    if (receipt.file && receipt.temporary && receipt.created)
+      this.files.completeInterruptedPublish(root, receipt.temporary, relative, receipt.created);
     if (receipt.file) {
       try {
         this.files.verify(root, relative, receipt.file);

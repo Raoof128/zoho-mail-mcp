@@ -47,11 +47,15 @@ export function mountedVolume(
   for (const line of table.split("\n")) {
     const options = /^(.*) \(([^,()]+)((?:, [^,()]+)*)\)$/.exec(line);
     if (!options) continue;
+    const local = (options[3] ?? "").split(", ").includes("local");
+    // Never stat a non-local mount point: a stale network share blocks lstat (final review I3). The
+    // options are the kernel's final parenthesis, so a crafted name cannot claim "local" here.
+    if (!local) continue;
     const head = options[1]!;
     let at = head.indexOf(" on ");
     while (at >= 0) {
       if (devOf(head.slice(at + 4)) === dev) {
-        found.push({ type: options[2]!, local: (options[3] ?? "").split(", ").includes("local") });
+        found.push({ type: options[2]!, local });
         break;
       }
       at = head.indexOf(" on ", at + 1);
@@ -210,6 +214,7 @@ class Root {
 export class SafeFiles {
   static readonly maximum = 25 * 1024 * 1024;
   private readonly roots = new Map<string, Root>();
+  private readonly unavailable = new Set<string>();
   private readonly privatePath: string;
   constructor(roots: Record<string, RootGrant>, privateDir: string) {
     this.privatePath = physical(privateDir, "private_stat");
@@ -221,7 +226,18 @@ export class SafeFiles {
       return refuse("private_stat");
     }
     for (const [id, grant] of Object.entries(roots)) {
-      const root = new Root(grant);
+      let root: Root;
+      try {
+        root = new Root(grant);
+      } catch (e) {
+        // A read-only root macOS has not allowed (Desktop, Documents) is skipped, not fatal: one
+        // "Don't Allow" must not take down saves and every other root (final review I5).
+        if (!grant.write && e instanceof NativeRefusal && e.message === "root_open") {
+          this.unavailable.add(id);
+          continue;
+        }
+        throw e;
+      }
       if (
         privateAncestors.has(`${root.dev}:${root.ino}`) ||
         ancestry(root.path).has(`${privateStat.dev}:${privateStat.ino}`)
@@ -258,6 +274,7 @@ export class SafeFiles {
     return path;
   }
   private root(id: string, write: boolean): Root {
+    if (this.unavailable.has(id)) refuse("root_unavailable");
     const r = this.roots.get(id);
     if (!r || !(write ? r.grant.write : r.grant.read)) refuse("root_permission");
     r!.check();
@@ -405,6 +422,49 @@ export class SafeFiles {
     r.check();
     if (!r.beneath(path)) refuse("publication_unknown");
     syncDirectory(dirname(join(r.path, path)), "publication_unknown");
+  }
+  /**
+   * A publish is linkSync(temp, final) then unlinkSync(temp). A process that died between the two
+   * leaves one inode under both names (nlink 2). When the temporary is still the inode recorded at
+   * creation and the destination is that same inode, the publish happened: remove the temporary
+   * name and let recovery verify the destination (final review I2). Anything else is left alone.
+   */
+  completeInterruptedPublish(rootId: string, temporary: string, relative: string, created: FileResult): boolean {
+    const r = this.root(rootId, true);
+    const path = this.validated(relative);
+    if (!TEMPORARY.test(temporary.slice(temporary.lastIndexOf("/") + 1))) return false;
+    const temp = r.open(temporary, O_RDONLY | O_NONBLOCK, 0, "publication_unknown");
+    if (temp.fd < 0) return false;
+    let tempStat: BigIntStats;
+    try {
+      tempStat = fstatSync(temp.fd, { bigint: true });
+    } finally {
+      closeSync(temp.fd);
+    }
+    if (
+      !tempStat.isFile() ||
+      tempStat.nlink !== 2n ||
+      Number(tempStat.dev) !== created.device ||
+      Number(tempStat.ino) !== created.inode
+    )
+      return false;
+    const final = r.open(path, O_RDONLY | O_NONBLOCK, 0, "publication_unknown");
+    if (final.fd < 0) return false;
+    let finalStat: BigIntStats;
+    try {
+      finalStat = fstatSync(final.fd, { bigint: true });
+    } finally {
+      closeSync(final.fd);
+    }
+    if (finalStat.dev !== tempStat.dev || finalStat.ino !== tempStat.ino) return false;
+    if (!r.beneath(temporary)) return false;
+    try {
+      unlinkSync(join(r.path, temporary));
+    } catch {
+      return refuse("temporary_cleanup");
+    }
+    syncDirectory(dirname(join(r.path, temporary)), "temporary_cleanup");
+    return true;
   }
   /** Only ENOENT establishes absence; every other failure is unknown, never a guess that frees a charge. */
   temporaryPresence(rootId: string, path: string): TemporaryPresence {

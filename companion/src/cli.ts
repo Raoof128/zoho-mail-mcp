@@ -19,7 +19,7 @@ import {
 import { Paths } from "./native/config.ts";
 
 const USAGE =
-  "Usage: zoho-mail-mcp-companion init --server https://HOST --client-id ID [--write-root PATH] [--read-root ID=PATH] | login | logout | serve | recover | install-agent | configure-clients --host HOST | debt [--scope SCOPE --release HANDLE]\n";
+  "Usage: zoho-mail-mcp-companion init --server https://HOST --client-id ID [--write-root PATH] [--read-root ID=PATH] | login | logout | status | serve | recover | install-agent | configure-clients --host HOST | debt [--scope SCOPE --release HANDLE]\n";
 /** What a refusal means, in one plain line for the owner. Codes not listed print as they are. */
 const PLAIN: Record<string, string> = {
   configuration_exists: "The companion is already set up on this Mac.",
@@ -103,6 +103,19 @@ async function main() {
       native.close();
     }
     process.stdout.write(`Companion set up. Put files to send in: ${outbox}\n`);
+    return;
+  }
+  if (command === "status") {
+    // Exit 0 signed in, 3 not signed in: the installer retries login on 3 (final review I1).
+    const native = new NativeProcess();
+    try {
+      const begin = await native.call({ op: "auth.begin" });
+      const signedIn = begin.body.length > 0;
+      process.stdout.write(signedIn ? "Signed in.\n" : "Not signed in.\n");
+      if (!signedIn) process.exitCode = 3;
+    } finally {
+      native.close();
+    }
     return;
   }
   if (command === "recover") {

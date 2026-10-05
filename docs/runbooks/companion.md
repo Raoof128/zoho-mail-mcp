@@ -16,7 +16,7 @@ What the line does, in order:
 2. Downloads `companion.tgz` and `companion.sha256` once each from the Worker, and stops unless the downloaded file's SHA-256 matches. The exact file that was checked is the file installed.
 3. Creates `~/Downloads/Mail/To Send` and `~/Downloads/Mail/Received`, and installs into `~/Library/Application Support/zoho-mail-mcp/` (mode 700) with `npm install --prefix`, saving nothing else.
 4. Writes `bin/companion` there: a two-line script that runs the absolute Node path on the installed bundle. Claude Desktop and launchd start programs with a minimal PATH, so nothing depends on PATH.
-5. On a first install only: reads the companion's public client id from `/companion-client-id`, runs `companion init`, then `companion login`, which opens the browser for the Zoho sign-in and stores the staging credential in the login Keychain.
+5. On a first install only: reads the companion's public client id from `/companion-client-id` and runs `companion init`. Then, on any run where `companion status` says it is not signed in, runs `companion login`, which opens the browser for the Zoho sign-in and stores the staging credential in the login Keychain. A login that failed last time is simply retried by running the line again.
 6. `companion install-agent`: a login item (`au.com.sarabisfinerugs.mail-mcp.companion`) that runs `companion recover` once at each login. Recovery clears expired snapshots and finishes or flags interrupted saves.
 7. `companion configure-clients`: adds `zoho-mail` (the Worker, `https://HOST/mcp`) and `zoho-mail-companion` (`bin/companion serve`) to Claude Code at user scope and to Codex, skipping any already present and reporting a CLI that is not installed. Adds `zoho-mail-companion` to Claude Desktop's `claude_desktop_config.json`, keeping every other entry and writing a timestamped backup first. A Desktop settings file that does not parse is left untouched and reported.
 
@@ -33,6 +33,8 @@ Two steps stay manual because no file can do them: in Claude Desktop or claude.a
 | `desktop`     | `~/Desktop` (if present)    | read   |
 | `documents`   | `~/Documents` (if present)  | read   |
 
+macOS asks once whether the companion may read Desktop and Documents. If the answer is Don't Allow, that folder is skipped (`root_unavailable`) and everything else keeps working; allow it later in System Settings, Privacy and Security, Files and Folders.
+
 The Worker stages a file from the root named exactly `outbox` without asking. A file from any other root needs approval in the browser first (`+outside_outbox`). So the plain rule for the owner is: put files to send in **To Send**. There is no `downloads` root: it would contain both mail folders.
 
 Saving never overwrites: a file that already exists at the destination is left alone, and the destination's parent folder must already exist.
@@ -45,7 +47,7 @@ Saving never overwrites: a file that already exists at the destination is left a
 
 ### The one weaker guarantee (D15)
 
-The Swift helper opened files beneath a root atomically (`openat` with `O_RESOLVE_BENEATH`) and published with an exclusive atomic rename. Node has neither. The companion checks every folder between the root and the file is a real folder, opens the file with `O_NOFOLLOW`, publishes by hard link (which fails rather than replace an existing file), and afterwards re-checks the resolved parent. **verify-after-publish re-checks the parent; a rename race between the two checks is refused rather than detected atomically.** If the process dies between the link and removing the temporary name, recovery reports `publication_unknown` and the temporary file stays for inspection.
+The Swift helper opened files beneath a root atomically (`openat` with `O_RESOLVE_BENEATH`) and published with an exclusive atomic rename. Node has neither. The companion checks every folder between the root and the file is a real folder, opens the file with `O_NOFOLLOW`, publishes by hard link (which fails rather than replace an existing file), and afterwards re-checks the resolved parent. **verify-after-publish re-checks the parent; a rename race between the two checks is refused rather than detected atomically.** If the process dies between the link and removing the temporary name, the next start finds one file under both names, checks it is the file it created, removes the temporary name and verifies the destination as normal.
 
 ## Debt
 

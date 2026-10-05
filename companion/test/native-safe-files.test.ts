@@ -1,5 +1,14 @@
 import { it, expect } from "vitest";
-import { mkdtempSync, writeFileSync, mkdirSync, existsSync, readFileSync, symlinkSync, readdirSync } from "node:fs";
+import {
+  mkdtempSync,
+  writeFileSync,
+  mkdirSync,
+  existsSync,
+  readFileSync,
+  symlinkSync,
+  readdirSync,
+  chmodSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { SafeFiles, mountedVolume } from "../src/native/safe-files.ts";
@@ -98,6 +107,36 @@ it("matches a root to its mount by device, so a crafted share name cannot borrow
     "//u@srv/y on /Volumes/share (apfs, local) (smbfs, nodev, nosuid, mounted by u)",
   ].join("\n");
   expect(mountedVolume(table, 2n, devOf)).toEqual({ type: "apfs", local: true });
-  expect(mountedVolume(table, 9n, devOf)).toEqual({ type: "smbfs", local: false });
+  expect(() => mountedVolume(table, 9n, devOf)).toThrow("unsupported_volume");
   expect(() => mountedVolume(table, 7n, devOf)).toThrow("unsupported_volume");
+});
+
+it("never stats a non-local mount point, so a stale network share cannot hang the companion (final review I3)", () => {
+  const looked: string[] = [];
+  const devOf = (p: string) => {
+    looked.push(p);
+    return p === "/System/Volumes/Data" ? 2n : undefined;
+  };
+  const table = [
+    "/dev/disk3s5 on /System/Volumes/Data (apfs, local, journaled, nobrowse)",
+    "//u@nas/share on /Volumes/share (smbfs, nodev, nosuid, mounted by u)",
+    "nas:/export on /Volumes/nfs (nfs, nodev, nosuid)",
+  ].join("\n");
+  expect(mountedVolume(table, 2n, devOf)).toEqual({ type: "apfs", local: true });
+  expect(looked).toEqual(["/System/Volumes/Data"]);
+});
+it("skips a read-only root the user has not allowed, without failing the other roots (final review I5)", () => {
+  const { docs, files: _unused, priv, out } = world();
+  chmodSync(docs, 0o000);
+  try {
+    const files = new SafeFiles(
+      { attachments: { path: out, read: false, write: true }, documents: { path: docs, read: true, write: false } },
+      priv,
+    );
+    expect(() => files.snapshot("documents", "a.txt", "tr_" + "u".repeat(43))).toThrow("root_unavailable");
+    const bytes = Buffer.from("ok");
+    expect(files.save("attachments", "ok.txt", bytes, SafeFiles.digest(bytes), {}).size).toBe(2);
+  } finally {
+    chmodSync(docs, 0o700);
+  }
 });

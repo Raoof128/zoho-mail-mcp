@@ -19,6 +19,10 @@ it("passes sh -n and shellcheck, downloads once, and installs the exact verified
   expect(text).toContain("Developer ID Installer: Node.js Foundation (HX7739G8FX)");
   // bin/companion is a written wrapper with an absolute node, never a symlink chain (Claude Desktop has a minimal PATH).
   expect(text).not.toContain("ln -s");
+  // A login that failed on the first run is retried on the next run, not skipped with the init (final review I1).
+  const initBlock = text.slice(text.indexOf("if [ ! -f"), text.indexOf("\nfi\n", text.indexOf("if [ ! -f")));
+  expect(initBlock).not.toContain("login");
+  expect(text).toMatch(/if ! "\$COMPANION" status[^\n]*; then\n[^\n]*\n\s*"\$COMPANION" login\n/);
   expect(text).toContain(
     `printf '#!/bin/sh\\nexec "%s" --no-warnings=ExperimentalWarning "%s" "$@"\\n' "$NODE" "$ENTRY"`,
   );

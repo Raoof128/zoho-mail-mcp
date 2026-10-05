@@ -157,3 +157,20 @@ it("configure-clients adds the companion to Claude Desktop, keeps other servers,
   expect(config.mcpServers["zoho-mail-companion"]!.args).toEqual(["serve"]);
   expect(run().stdout).toContain("Claude Desktop: zoho-mail-companion already set up.");
 });
+
+it("status says whether the companion is signed in, with an exit code the installer can test", () => {
+  const cli = new URL("../src/cli.ts", import.meta.url).pathname;
+  const home = mkdtempSync(join(tmpdir(), "zms-"));
+  const env = { ...process.env, HOME: home };
+  expect(
+    spawnSync(process.execPath, [cli, "init", "--server", "https://mail-mcp.example.test", "--client-id", "cid"], {
+      encoding: "utf8",
+      timeout: 60_000,
+      env,
+    }).status,
+  ).toBe(0);
+  // Read-only: looks up a Keychain item for this throwaway configuration, which does not exist.
+  const status = spawnSync(process.execPath, [cli, "status"], { encoding: "utf8", timeout: 60_000, env });
+  expect(status.stdout).toBe("Not signed in.\n");
+  expect(status.status).toBe(3);
+});
