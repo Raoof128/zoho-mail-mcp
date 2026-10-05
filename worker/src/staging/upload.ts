@@ -138,6 +138,7 @@ export async function acceptUpload(
         size: m.size,
         body: (request.body ?? new Response(new Uint8Array(0)).body) as ReadableStream<Uint8Array>,
         declaredSha256: m.sha256,
+        deadline: until,
       },
     );
     if (Date.now() >= until) throw new McpError("handle_invalid", "handle_invalid: upload lease expired");

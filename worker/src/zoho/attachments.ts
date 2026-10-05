@@ -16,7 +16,7 @@ export async function uploadToZoho(
   env: Env,
   deps: Deps,
   acct: ZohoAcct,
-  o: { fileName: string; size: number; body: ReadableStream<Uint8Array>; declaredSha256: string },
+  o: { fileName: string; size: number; body: ReadableStream<Uint8Array>; declaredSha256: string; deadline?: number },
 ): Promise<{ ref: ZohoUploadRef; sha256: string }> {
   const digest = new crypto.DigestStream("SHA-256");
   const hash = digest.getWriter();
@@ -25,6 +25,11 @@ export async function uploadToZoho(
   const counted = o.body.pipeThrough(
     new TransformStream<Uint8Array, Uint8Array>({
       async transform(chunk, c) {
+        // An upload may not outlive its admission lease (final review of M5, I4); retryable with a new generation.
+        if (o.deadline !== undefined && Date.now() > o.deadline) {
+          failed.overrun = new McpError("rate_limited", "rate_limited: the upload ran past its lease; retry");
+          throw failed.overrun;
+        }
         seen += chunk.byteLength;
         if (seen > o.size) {
           failed.overrun = new McpError("limit_exceeded", `limit_exceeded: body longer than declared ${o.size}`);

@@ -85,9 +85,11 @@ export function stagingApiHandler(deps: Deps): FetchHandler {
               ? 403
               : e.code === "handle_expired"
                 ? 404
-                : e.code === "idempotency_conflict"
-                  ? 409
-                  : 400;
+                : e.code === "rate_limited"
+                  ? 429
+                  : e.code === "idempotency_conflict"
+                    ? 409
+                    : 400;
           return json({ error: e.code }, status);
         }
         if (e instanceof ZodError || e instanceof SyntaxError || e instanceof TypeError)
@@ -113,13 +115,34 @@ export function downloadLinkRoutes(deps: Deps): Route[] {
         if (s instanceof Response) return s;
         const id = /^\/dl\/(dl_[A-Za-z0-9_-]{43})$/.exec(url.pathname)![1]!;
         const now = Date.now();
-        const link = await env.DB.prepare(
-          "UPDATE download_links SET consumed_at=? WHERE id=? AND user_id=? AND consumed_at IS NULL AND expires_at>? RETURNING handle",
+        // Admission first, then the single-use claim: a busy or failed admission must not spend the link
+        // (final review of M5, I1). The UPDATE ... RETURNING still guarantees one use under a race.
+        const pending = await env.DB.prepare(
+          "SELECT handle FROM download_links WHERE id=? AND user_id=? AND consumed_at IS NULL AND expires_at>?",
         )
-          .bind(now, id, s.userId, now)
+          .bind(id, s.userId, now)
           .first<{ handle: string }>();
-        if (!link) return new Response("Not found", { status: 404, headers: { "cache-control": "no-store" } });
-        const { row, body } = await leasedDownload(env, deps, s.userId, link.handle);
+        if (!pending) return new Response("Not found", { status: 404, headers: { "cache-control": "no-store" } });
+        let opened: Awaited<ReturnType<typeof leasedDownload>>;
+        try {
+          opened = await leasedDownload(env, deps, s.userId, pending.handle);
+        } catch (e) {
+          const busy = e instanceof McpError && e.code === "rate_limited";
+          return new Response(busy ? "Busy: other downloads are running. Try again shortly." : "Not available", {
+            status: busy ? 429 : 404,
+            headers: { "cache-control": "no-store" },
+          });
+        }
+        const claimed = await env.DB.prepare(
+          "UPDATE download_links SET consumed_at=? WHERE id=? AND user_id=? AND consumed_at IS NULL RETURNING handle",
+        )
+          .bind(Date.now(), id, s.userId)
+          .first<{ handle: string }>();
+        if (!claimed) {
+          await opened.body.cancel();
+          return new Response("Not found", { status: 404, headers: { "cache-control": "no-store" } });
+        }
+        const { row, body } = opened;
         return new Response(body, {
           headers: {
             "content-type": "application/octet-stream",

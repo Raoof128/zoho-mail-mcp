@@ -90,7 +90,7 @@ export async function leasedDownload(
     key: handle,
     until,
     now,
-    code: "handle_invalid",
+    code: "rate_limited", // busy, not a dead handle: the companion and /dl answer 429 (final review of M5, I2)
   });
   let res: Response;
   try {

@@ -66,7 +66,7 @@ describe("download admission controls", () => {
       );
     const open: ReadableStream<Uint8Array>[] = [];
     for (const h of handles.slice(0, L.downloadsOwner)) open.push((await leasedDownload(f.e, f.d, "u", h)).body);
-    expect(await code(leasedDownload(f.e, f.d, "u", handles[L.downloadsOwner]!))).toBe("handle_invalid");
+    expect(await code(leasedDownload(f.e, f.d, "u", handles[L.downloadsOwner]!))).toBe("rate_limited"); // busy, not dead (M5 review I2)
     await Promise.all(open.map((b) => b.cancel()));
     // Cancelling frees the slots.
     const { body } = await leasedDownload(f.e, f.d, "u", handles[L.downloadsOwner]!);

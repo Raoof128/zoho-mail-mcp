@@ -1,5 +1,5 @@
 import { releaseStatements } from "./staging/sealed";
-import { expireUploads } from "./staging/expiry";
+import { expireUploads, purgeUploadState } from "./staging/expiry";
 import { assertInstallation } from "./operations/installation";
 import type { Env } from "./env";
 import { purgeExpiredSealed } from "./staging/sealed";
@@ -71,8 +71,19 @@ export async function runCron(env: Env, now: number, limit = 200): Promise<CronR
   let failedSafe = 0;
   for (const r of stale.results) if (await recoverClaimed(env.DB, r.id, now)) failedSafe++;
 
-  await expireUploads(env, now, limit);
-  const sealed = await purgeExpiredSealed(env.DB, now, limit);
+  // Each sweep is isolated: one failing step (a lost race, a bad row) never stops the cleanups after it
+  // (final review of M5, I3).
+  const step = async <T>(name: string, fn: () => Promise<T>, fallback: T): Promise<T> => {
+    try {
+      return await fn();
+    } catch (e) {
+      console.error("cron step failed", name, (e as Error).message);
+      return fallback;
+    }
+  };
+  await step("expireUploads", () => expireUploads(env, now, limit), undefined);
+  await step("purgeUploadState", () => purgeUploadState(env, now), undefined);
+  const sealed = await step("purgeExpiredSealed", () => purgeExpiredSealed(env.DB, now, limit), { deleted: 0 });
   const audit = await env.DB.prepare(
     `DELETE FROM audit_log WHERE id IN (SELECT id FROM audit_log WHERE ts <= ? LIMIT ?)`,
   )

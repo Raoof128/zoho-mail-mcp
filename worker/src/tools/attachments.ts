@@ -30,6 +30,39 @@ const acct = (run: ExecRun) => {
   return { userId: run.userId, accountId: run.account.id, toolCallId: id };
 };
 
+/**
+ * One pass over an attachment stream into an incremental SHA-256: refuses more than `maxBytes`, and stops if it runs
+ * past `deadline`, the stream slot's lease (final review of M5, I4). Nothing is buffered.
+ */
+export async function digestWithin(
+  body: ReadableStream<Uint8Array>,
+  maxBytes: number,
+  deadline: number,
+): Promise<{ length: number; sha256: string }> {
+  const digest = new crypto.DigestStream("SHA-256");
+  // A refused stream rejects the digest too; observe it here so the refusal below is the one that surfaces.
+  const result = digest.digest;
+  result.catch(() => {});
+  let length = 0;
+  await body
+    .pipeThrough(
+      new TransformStream<Uint8Array, Uint8Array>({
+        transform(chunk, c) {
+          if (Date.now() > deadline)
+            throw new McpError("handle_expired", "handle_expired: the attachment stream ran past its lease");
+          length += chunk.byteLength;
+          if (length > maxBytes) throw new McpError("limit_exceeded", "limit_exceeded: attachment too large");
+          c.enqueue(chunk);
+        },
+      }),
+    )
+    .pipeTo(digest);
+  return {
+    length,
+    sha256: [...new Uint8Array(await digest.digest)].map((x) => x.toString(16).padStart(2, "0")).join(""),
+  };
+}
+
 /** Download handles an owner may hold unsaved at once. */
 export const MAX_OUTSTANDING_DOWNLOADS = 20;
 
@@ -98,24 +131,14 @@ export function registerAttachmentTools(
       });
       try {
         const res = await streamFromZoho(e, d, a, { ...ref, attachmentId: p.attachment_id });
-        // Streamed into an incremental digest, never held in memory (same rule as uploads, security review of 421a605).
-        const digest = new crypto.DigestStream("SHA-256");
-        let length = 0;
-        await res
-          .body!.pipeThrough(
-            new TransformStream<Uint8Array, Uint8Array>({
-              transform(chunk, c) {
-                length += chunk.byteLength;
-                if (length > STAGING_LIMITS.fileBytes)
-                  throw new McpError("limit_exceeded", "limit_exceeded: attachment too large");
-                c.enqueue(chunk);
-              },
-            }),
-          )
-          .pipeTo(digest);
+        // Streamed into an incremental digest within the slot's lease, never held in memory.
+        const { length, sha256 } = await digestWithin(
+          res.body as ReadableStream<Uint8Array>,
+          STAGING_LIMITS.fileBytes,
+          slotNow + STAGING_LIMITS.leaseMs,
+        );
         if (length !== info.attachmentSize)
           throw new McpError("handle_invalid", "handle_invalid: zoho attachment size changed");
-        const sha256 = [...new Uint8Array(await digest.digest)].map((x) => x.toString(16).padStart(2, "0")).join("");
         const now = Date.now();
         const handle = randomHandle();
         await insertSealed(e.DB, {

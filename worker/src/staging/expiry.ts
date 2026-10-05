@@ -62,3 +62,45 @@ export async function expireUploads(env: Env, now: number, limit = 200): Promise
     }
   }
 }
+
+/**
+ * Purges the admission and recovery state the R2 recovery used to sweep (final review of M5, C1): without it the
+ * recovery-slot budget, admissions, acknowledgements, lapsed stream slots and finished transfers grew forever and the
+ * caps filled for good.
+ */
+export async function purgeUploadState(env: Env, now: number): Promise<void> {
+  const db = env.DB;
+  await db.batch([
+    db.prepare("DELETE FROM download_streams WHERE lease_until<=?").bind(now),
+    db
+      .prepare(
+        "DELETE FROM staging_recovery_slots WHERE retain_until<=? AND NOT EXISTS(SELECT 1 FROM upload_transfers t WHERE t.user_id=staging_recovery_slots.user_id AND staging_recovery_slots.key='upload:'||t.id)",
+      )
+      .bind(now),
+    db
+      .prepare(
+        "DELETE FROM staging_acknowledgements WHERE retain_until<=? AND NOT EXISTS(SELECT 1 FROM sealed_handles s WHERE s.handle=staging_acknowledgements.handle)",
+      )
+      .bind(now),
+    db
+      .prepare(
+        "DELETE FROM download_admissions WHERE retain_until<=? AND NOT EXISTS(SELECT 1 FROM download_streams s WHERE s.handle=download_admissions.handle AND s.user_id=download_admissions.user_id)",
+      )
+      .bind(now),
+    db
+      .prepare(
+        "DELETE FROM upload_retry_requests WHERE EXISTS(SELECT 1 FROM upload_transfers t WHERE t.user_id=upload_retry_requests.user_id AND t.id=upload_retry_requests.transfer_id AND t.retain_until<=? AND t.state IN ('completed','failed','expired','denied'))",
+      )
+      .bind(now),
+    db
+      .prepare(
+        "DELETE FROM upload_generations WHERE EXISTS(SELECT 1 FROM upload_transfers t WHERE t.user_id=upload_generations.user_id AND t.id=upload_generations.transfer_id AND t.retain_until<=? AND t.state IN ('completed','failed','expired','denied')) AND state NOT IN ('issued','uploading','stored')",
+      )
+      .bind(now),
+    db
+      .prepare(
+        "DELETE FROM upload_transfers WHERE retain_until<=? AND state IN ('completed','failed','expired','denied') AND NOT EXISTS(SELECT 1 FROM upload_generations g WHERE g.user_id=upload_transfers.user_id AND g.transfer_id=upload_transfers.id)",
+      )
+      .bind(now),
+  ]);
+}
