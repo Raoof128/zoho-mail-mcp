@@ -40,3 +40,53 @@ describe("uploadToZoho", () => {
     ).rejects.toMatchObject({ code: "limit_exceeded" });
   });
 });
+
+describe("uploadToZoho memory (security review of 421a605)", () => {
+  it("pulls the body only as fast as Zoho reads it: no tee buffering ahead of the upload", async () => {
+    const { e, d, acct } = await zohoFixture();
+    const CHUNKS = 64;
+    const chunk = new Uint8Array(1024).fill(7);
+    let pulled = 0;
+    const body = new ReadableStream<Uint8Array>(
+      {
+        pull(c) {
+          if (pulled === CHUNKS) return c.close();
+          pulled++;
+          c.enqueue(chunk);
+        },
+      },
+      { highWaterMark: 0 },
+    );
+    const all = new Uint8Array(CHUNKS * 1024).fill(7);
+    const sha = [...new Uint8Array(await crypto.subtle.digest("SHA-256", all))]
+      .map((x) => x.toString(16).padStart(2, "0"))
+      .join("");
+    let pulledAfterFirstRead = -1;
+    const slowZoho: typeof fetch = async (input, init) => {
+      const req = new Request(input, init);
+      if (!new URL(req.url).pathname.endsWith("/messages/attachments")) return d.zohoFetch(input, init);
+      const reader = req.body!.getReader();
+      await reader.read();
+      await new Promise((r) => setTimeout(r, 30));
+      pulledAfterFirstRead = pulled;
+      let n = 1024;
+      for (;;) {
+        const r = await reader.read();
+        if (r.done) break;
+        n += r.value.byteLength;
+      }
+      return Response.json({
+        status: { code: 200 },
+        data: { storeName: "store-x", attachmentName: "m.bin", attachmentPath: "/p", attachmentSize: n },
+      });
+    };
+    const r = await uploadToZoho(e, { ...d, zohoFetch: slowZoho }, acct, {
+      fileName: "m.bin",
+      size: CHUNKS * 1024,
+      body,
+      declaredSha256: sha,
+    });
+    expect(r.sha256).toBe(sha);
+    expect(pulledAfterFirstRead).toBeLessThan(CHUNKS / 2);
+  });
+});

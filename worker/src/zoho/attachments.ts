@@ -7,8 +7,10 @@ import { attachmentStream, uploadAttachment, type ZohoUploadRef } from "./mail";
 const toHex = (b: ArrayBuffer) => [...new Uint8Array(b)].map((x) => x.toString(16).padStart(2, "0")).join("");
 
 /**
- * Spec D16. The body is never materialised: one branch of the tee feeds Zoho, the other a running
- * SHA-256 and a length check. A length overrun aborts both branches before the extra bytes leave.
+ * Spec D16. The body is never materialised: it passes once through a transform that counts it, refuses it the moment
+ * it runs past the declared size, and feeds an incremental SHA-256 (DigestStream) on its way to Zoho. Zoho's read
+ * pace sets the pull rate, so nothing is buffered ahead of the upload (security review of 421a605: a tee plus a
+ * buffered digest held up to the whole file, twice, under a slow Zoho).
  */
 export async function uploadToZoho(
   env: Env,
@@ -16,34 +18,37 @@ export async function uploadToZoho(
   acct: ZohoAcct,
   o: { fileName: string; size: number; body: ReadableStream<Uint8Array>; declaredSha256: string },
 ): Promise<{ ref: ZohoUploadRef; sha256: string }> {
-  const [toZoho, toHash] = o.body.tee();
+  const digest = new crypto.DigestStream("SHA-256");
+  const hash = digest.getWriter();
   let seen = 0;
-  const chunks: Uint8Array[] = []; // DigestStream is Cloudflare-specific; a running hash keeps the Worker portable under workerd tests.
-  const hashing = (async () => {
-    const reader = toHash.getReader();
-    for (;;) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      seen += value.byteLength;
-      if (seen > o.size) {
-        await reader.cancel();
-        await toZoho.cancel().catch(() => {});
-        throw new McpError("limit_exceeded", `limit_exceeded: body longer than declared ${o.size}`);
-      }
-      chunks.push(value);
-    }
-    const all = new Uint8Array(seen);
-    let off = 0;
-    for (const c of chunks) {
-      all.set(c, off);
-      off += c.byteLength;
-    }
-    return toHex(await crypto.subtle.digest("SHA-256", all));
-  })();
-  const upload = uploadAttachment(env, deps, acct, o.fileName, toZoho);
-  const [sha256, ref] = await Promise.all([hashing, upload]);
+  const failed: { overrun?: McpError } = {};
+  const counted = o.body.pipeThrough(
+    new TransformStream<Uint8Array, Uint8Array>({
+      async transform(chunk, c) {
+        seen += chunk.byteLength;
+        if (seen > o.size) {
+          failed.overrun = new McpError("limit_exceeded", `limit_exceeded: body longer than declared ${o.size}`);
+          throw failed.overrun;
+        }
+        await hash.write(chunk);
+        c.enqueue(chunk);
+      },
+      async flush() {
+        await hash.close();
+      },
+    }),
+  );
+  let ref: ZohoUploadRef;
+  try {
+    ref = await uploadAttachment(env, deps, acct, o.fileName, counted);
+  } catch (e) {
+    if (failed.overrun) throw failed.overrun;
+    throw e;
+  }
+  if (failed.overrun) throw failed.overrun;
   if (seen !== o.size)
     throw new McpError("limit_exceeded", `limit_exceeded: body was ${seen} bytes, declared ${o.size}`);
+  const sha256 = toHex(await digest.digest);
   if (sha256 !== o.declaredSha256)
     throw new McpError(
       "handle_invalid",
