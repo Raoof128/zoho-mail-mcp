@@ -5,6 +5,7 @@ import { OAuthProvider, type OAuthProviderOptions } from "@cloudflare/workers-oa
 import { createMcpHandler } from "agents/mcp/server";
 import type { Env } from "./env";
 import { runCron } from "./cron";
+import { probeDeliveries } from "./operations/probe";
 import { defaultDeps, type Deps } from "./deps";
 import { isCompanionName } from "./auth/companion";
 import { isRegistrationOpen } from "./auth/registration";
@@ -165,6 +166,8 @@ export function createWorker(deps: Deps = defaultDeps): Worker {
           const now = Date.now();
           await recoverDeliveries(env, deps, controller.scheduledTime, now);
           await runCron(env, Date.now());
+          // Spec 5.5: settle delivery_unknown sends only on positive evidence in Sent.
+          await probeDeliveries(env, deps, Date.now());
           await providerFor(env, deps).provider.purgeExpiredData(env, { batchSize: 100 });
         })(),
       );
