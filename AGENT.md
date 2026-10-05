@@ -85,3 +85,28 @@ Agent work on this repository, newest last. Each entry: date (Australia/Sydney),
 - Task 3.6: the ported fault suite and the Gmail state-machine file were kept. Migration 0002 is a partial unique index that excludes revoked rows. Storage settlement is a plain batch.
 - Security: five defects found by the background reviews were fixed test-first, as listed above. A later "authorization-check-bypass in drafts.ts" notice was re-audited against the fix, and no further path was found.
 - Final: the reviewer ran on Sonnet, per Raouf's standing rule.
+
+---
+
+## Raouf: 2026-10-05 (Australia/Sydney) - Zoho Mail MCP: M4 organising tools executed, reviewed, fixed and pushed; all Google code retired
+
+**Scope:** Raouf: "proceed". Code in `~/Desktop/Raouf/zoho-mail-mcp`, branch `feat/m4-organise-tools` (stacked on `feat/m3-compose-and-recovery`), pushed to the private `Raoof128/zoho-mail-mcp`. Haji: the M5 tool-count note and these logs. Nothing deployed, no live Zoho calls.
+
+**Summary:** M4 Tasks 4.1 and 4.2 executed inline under TDD. Twenty-one organising tools run on one factory (labels, flags, read marks, archive, move, trash, spam and their reversals, `update_message_labels`, label create, update and delete). Each opens its operation before Zoho changes, and trash journals so `untrash` can restore the source folder. `label.manage` is allow, and `delete_label` carries `+destructive`, which raises it to ask. All Google code is gone: the Gmail client, `googleFetch`, FakeGoogle, FakeGmail, the interim Gmail id type and an orphaned legacy corpus, with every test on the Zoho double. Plan defects ruled during execution: the factory never opened operations and drew a fresh budget id per call, `mark_read` ignored thread ids, `update_message_labels` (in spec 5.4) was missing, and the annotations dropped the destructive hints clients use for warnings. A background security review found two policy bypasses, both fixed test-first: `apply_sensitive_*` SPAM ran under the trash policy, and a message moved into Drafts could then be trashed by the draft tools. The final review (Sonnet) found one Critical and five Important issues, verified against the saved official Zoho pages and fixed test-first. Every update call required a `data` field that Zoho's documented status-only answer lacks, so every organising tool would have failed live. Untrash trusted the caller's folder hint. The untrash lookup could pick a record without a source folder. Moves into Sent could forge the delivery probe's evidence. Thread actions other than labels used an undocumented endpoint. `apply_sensitive_*` now offers TRASH only. The test double now answers updates as the saved pages show.
+
+**Files Changed:** zoho-mail-mcp: `worker/src/tools/organise.ts` (new), `worker/src/zoho/{client,mail}.ts`, `worker/src/tools/gate.ts`, `worker/src/deps.ts`, `worker/src/mcp/server.ts`, `shared/src/{schemas,actions}.ts`, deleted `worker/src/google/`, `tools/labels.ts`, the Google doubles and Gmail tests; tests `organise-tools`, `m4-security-fixes`, `m4-review-fixes`, ported `elicitation` and `operation-state-machine-zoho`, `mcp`, `gate`, `fake-zoho-mail`; `AGENT.md`, `CHANGELOG.md`; M5 plan note. Haji: the M5 plan note, `AGENT.md`, `CHANGELOG.md`, `CLAUDE.md`.
+
+**Verification:** `npm run verify` exit 0: Worker 446 passed (70 files), shared 7, companion 23 passed and 1 skipped, qualification 165. `grep -rn "googleFetch|FakeGoogle|gmail.googleapis|LegacyGmailId" worker shared/src` is empty. Every fix test was watched failing first.
+
+**Follow-ups:** M5 attachments and streaming is next (restore `download_attachment`, delete the old staging store and `staging/reserve.ts`). Probe items: id types (strings versus longs), thread bodies on `/updatemessage`, whether Zoho acts on Outbox or Templates. Seven review minors deferred (zoho CHANGELOG), including Gmail wording still in a few messages and comments.
+
+**M4 rulings (from the ledger, deleted after the clean review):**
+
+- Task 4.1: the budget id is drawn once per run. Every executor opens its operation before Zoho changes. Trash journals so the source folder is always recorded. Cost if wrong: one operation row per trash.
+- Task 4.1: moves into Trash, Spam and Drafts are refused (pre-empted, then a security fix). Sent, Outbox and Templates were added after the review. Cost if wrong: such moves need the dedicated tools.
+- Task 4.1: `mark_read` and `mark_unread` take message ids, thread ids or both. `update_message_labels` is added from spec 5.4. Destructive hints follow the Gmail set. `label.manage` is allow, with `+destructive` on `delete_label`. Cost if wrong: an injected agent can create or rename labels without approval, but not delete them.
+- Task 4.1: the plan's test helper passed `message_id` to `mark_*`. The Gmail state-machine and elicitation cases moved to Zoho. The protocol test pins 48 tools; M5 brings it to 49.
+- Task 4.2: the brief's tool count was stale. The orphaned legacy corpus was deleted. The download input's id became `ZohoId`. The gate's Gmail 4xx rule was removed.
+- Security: `apply_sensitive_*` SPAM ran under the trash policy, and a move into Drafts let the draft tools trash a non-draft. Both are fixed.
+- Final: `apply_sensitive_*` moves to Trash under `trash.move` ask, which is stricter than spec 5.4's row. It offers TRASH only.
+- Final: the reviewer ran on Sonnet, per Raouf's standing rule.

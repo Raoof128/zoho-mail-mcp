@@ -6,6 +6,20 @@ release.
 
 ## [Unreleased]
 
+### Zoho fork: M4 organising tools (2026-10-05)
+
+- **Twenty-one organising tools on Zoho.** Labels, flags, read marks, archive, move, trash, spam and their
+  reversals, `update_message_labels`, and label create, update and delete. Each is one documented update.
+  A 2xx with Zoho's status-only answer is success.
+- **Policy holds across tools.** Moves refuse Trash, Spam, Drafts, Sent, Outbox and Templates, which have
+  their own tools or are evidence. `apply_sensitive_*` offers TRASH only. `label.manage` is allow and
+  `delete_label` asks. Untrash restores only a safe folder that Zoho reported at trash time.
+- **No Google code remains.** The Gmail client, `googleFetch`, the Google test doubles and the interim
+  Gmail id type are gone.
+- **Deferred (review minors):** empty `mark_read` and `update_label` are refused at execute, not plan;
+  two PUTs for mixed calls; `folder_id` is ignored by most message tools; id types need the probe; label
+  approvals render as raw JSON; Gmail wording remains in a few messages and comments; small duplication.
+
 ### Zoho fork: M3 compose, send, drafts and recovery (2026-10-05)
 
 - **Send, reply, forward on Zoho.** Recipients for replies are rebuilt by the server. Policy is decided on
