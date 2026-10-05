@@ -5,6 +5,7 @@ import { ForwardInput, ReplyInput, SendMessageInput } from "@zoho-mail-mcp/share
 import type { Env } from "../env";
 import type { Deps } from "../deps";
 import { executeZohoSend } from "../operations/zoho-send";
+import { BUDGETS } from "../zoho/account-do";
 import { assertNotBlocked } from "../policy/limits";
 import { recipientModifiers } from "../policy/recipients";
 import { listUploadHandles } from "../staging/sealed";
@@ -124,6 +125,14 @@ export async function planSend(
   if (args.to.length + args.cc.length + args.bcc.length === 0)
     throw new McpError("invalid_address", "invalid_address: at least one recipient is required");
   const from = senderFor(account, args.from);
+  // Spec D17: every file this call uploads to Zoho (inline or carried) counts against the 10-attachment budget,
+  // refused before any upload; staged handles are already in Zoho and do not.
+  if (inline.length + extra.carry.length > BUDGETS.attachments)
+    throw new McpError(
+      "budget_exceeded",
+      `budget_exceeded: at most ${BUDGETS.attachments} files can be uploaded in one call; ${inline.length + extra.carry.length} asked`,
+      { counter: "attachments" },
+    );
   const given = args.attachments ?? [];
   const otherBytes = extra.carry.reduce((n, c) => n + c.size, 0) + inline.reduce((n, d) => n + d.size, 0);
   const { rows } = await attachmentsFor(env, a.userId, account, given, otherBytes);
