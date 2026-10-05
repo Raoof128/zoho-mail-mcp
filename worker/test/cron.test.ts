@@ -75,8 +75,8 @@ describe("cron", () => {
       .bind(old, old + 900_000)
       .run();
     await env.DB.prepare(
-      `INSERT INTO staging_objects (handle, user_id, account_id, direction, provider_ref, filename, mime, size, sha256, reserved_by_operation_id, created_at, expires_at)
-      VALUES ('sh_res', 'ku', 'ka', 'upload', 'k', 'f', 'm', 1, 'h', 'op_claim', ?, ?)`,
+      `INSERT INTO sealed_handles (handle, user_id, account_id, direction, provider_ref, filename, mime, size, sha256, reserved_by_operation_id, created_at, expires_at)
+      VALUES ('sh_res', 'ku', 'ka', 'upload', '{}', 'f', 'm', 1, '0000000000000000000000000000000000000000000000000000000000000000', 'op_claim', ?, ?)`,
     )
       .bind(old, old + 900_000)
       .run();
@@ -107,9 +107,9 @@ describe("cron", () => {
     ).toEqual({ state: "failed", payload_json: null, error: "failed_safe" });
     expect(
       (
-        await env.DB.prepare(
-          "SELECT reserved_by_operation_id AS r FROM staging_objects WHERE handle = 'sh_res'",
-        ).first<{ r: string | null }>()
+        await env.DB.prepare("SELECT reserved_by_operation_id AS r FROM sealed_handles WHERE handle = 'sh_res'").first<{
+          r: string | null;
+        }>()
       )?.r,
     ).toBeNull();
   });
@@ -117,8 +117,8 @@ describe("cron", () => {
     const old = Date.now() - 10 * 60_000;
     await insertOperation(env.DB, "op_race", "ku", "ka", "claimed", old);
     await env.DB.prepare(
-      `INSERT INTO staging_objects (handle, user_id, account_id, direction, provider_ref, filename, mime, size, sha256, reserved_by_operation_id, created_at, expires_at)
-      VALUES ('sh_race', 'ku', 'ka', 'upload', 'k', 'f', 'm', 1, 'h', 'op_race', ?, ?)`,
+      `INSERT INTO sealed_handles (handle, user_id, account_id, direction, provider_ref, filename, mime, size, sha256, reserved_by_operation_id, created_at, expires_at)
+      VALUES ('sh_race', 'ku', 'ka', 'upload', '{}', 'f', 'm', 1, '0000000000000000000000000000000000000000000000000000000000000000', 'op_race', ?, ?)`,
     )
       .bind(old, old + 900_000)
       .run();
@@ -129,7 +129,7 @@ describe("cron", () => {
     expect(
       (
         await env.DB.prepare(
-          "SELECT reserved_by_operation_id AS r FROM staging_objects WHERE handle = 'sh_race'",
+          "SELECT reserved_by_operation_id AS r FROM sealed_handles WHERE handle = 'sh_race'",
         ).first<{ r: string | null }>()
       )?.r,
     ).toBe("op_race");

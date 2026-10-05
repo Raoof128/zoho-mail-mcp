@@ -1,7 +1,7 @@
 import { McpError } from "@zoho-mail-mcp/shared/errors";
 import { StagingHandle } from "@zoho-mail-mcp/shared/schemas";
 import { randomId } from "../crypto/random";
-import { reserveStatements } from "../staging/reserve";
+import { reserveStatements } from "../staging/sealed";
 import { getPending, type PendingRow } from "./pending";
 
 /** Handles come from the approved payload only. Any other shape is a payload_mismatch, never a guess. */
@@ -73,10 +73,9 @@ export async function claimPending(
       const ph = handles.map(() => "?").join(",");
       const expired = await db
         .prepare(
-          `SELECT handle FROM sealed_handles WHERE handle IN (${ph}) AND consumed_at IS NULL AND expires_at <= ?
-           UNION SELECT handle FROM staging_objects WHERE handle IN (${ph}) AND consumed_at IS NULL AND expires_at <= ?`,
+          `SELECT handle FROM sealed_handles WHERE handle IN (${ph}) AND consumed_at IS NULL AND expires_at <= ?`,
         )
-        .bind(...handles, Date.now(), ...handles, Date.now())
+        .bind(...handles, Date.now())
         .all<{ handle: string }>();
       if (expired.results.length > 0)
         throw new McpError(

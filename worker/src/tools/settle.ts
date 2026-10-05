@@ -1,4 +1,4 @@
-import { consumeStatements, releaseStatements } from "../staging/reserve";
+import { consumeStatements, releaseStatements } from "../staging/sealed";
 import { auditStatement, type AuditBase } from "../audit/log";
 
 export type Settlement = {

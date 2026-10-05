@@ -51,10 +51,10 @@ function ctx(
 
 async function stageUpload(handle: string, size = 10) {
   await env.DB.prepare(
-    `INSERT INTO staging_objects (handle, user_id, account_id, direction, provider_ref, filename, mime, size, sha256, created_at, expires_at)
-     VALUES (?, 'tg', 'ta', 'upload', ?, 'f.pdf', 'application/pdf', ?, 'h', ?, ?)`,
+    `INSERT INTO sealed_handles (handle, user_id, account_id, direction, provider_ref, filename, mime, size, sha256, created_at, expires_at)
+     VALUES (?, 'tg', 'ta', 'upload', '{}', 'f.pdf', 'application/pdf', ?, '0000000000000000000000000000000000000000000000000000000000000000', ?, ?)`,
   )
-    .bind(handle, `stg/tg/${handle}`, size, Date.now(), Date.now() + 60_000)
+    .bind(handle, size, Date.now(), Date.now() + 60_000)
     .run();
 }
 const H = (s: string) => "sh_" + s.padEnd(43, "B");
@@ -184,7 +184,7 @@ describe("allow", () => {
     );
     expect(a.status).toBe("executed");
     const row = await env.DB.prepare(
-      "SELECT consumed_at, reserved_by_operation_id FROM staging_objects WHERE handle = ?",
+      "SELECT consumed_at, reserved_by_operation_id FROM sealed_handles WHERE handle = ?",
     )
       .bind(H("h1"))
       .first<any>();
@@ -235,7 +235,7 @@ describe("allow", () => {
     expect(r1).toMatchObject({ error: "internal" });
     expect(
       (
-        await env.DB.prepare("SELECT reserved_by_operation_id FROM staging_objects WHERE handle = ?")
+        await env.DB.prepare("SELECT reserved_by_operation_id FROM sealed_handles WHERE handle = ?")
           .bind(H("h2"))
           .first<any>()
       ).reserved_by_operation_id,
@@ -254,7 +254,7 @@ describe("allow", () => {
     ).toBe("failed_safe");
     expect(
       (
-        await env.DB.prepare("SELECT reserved_by_operation_id FROM staging_objects WHERE handle = ?")
+        await env.DB.prepare("SELECT reserved_by_operation_id FROM sealed_handles WHERE handle = ?")
           .bind(H("h2"))
           .first<any>()
       ).reserved_by_operation_id,
@@ -267,7 +267,7 @@ describe("allow", () => {
     expect(await opRow(r3.details.operation_id)).toMatchObject({ state: "executing", rfc822_message_id: "<x@test>" });
     expect(
       (
-        await env.DB.prepare("SELECT reserved_by_operation_id FROM staging_objects WHERE handle = ?")
+        await env.DB.prepare("SELECT reserved_by_operation_id FROM sealed_handles WHERE handle = ?")
           .bind(H("h2"))
           .first<any>()
       ).reserved_by_operation_id,
@@ -329,7 +329,7 @@ describe("ask without URL elicitation", () => {
     expect(row.payload_json).toBe(`{"attachments":["${H("h3")}"],"to":["x@example.test"],"tool":"test_send","v":1}`);
     expect(row.intent_hash).toBe(i.intentHash);
     expect(
-      (await env.DB.prepare("SELECT expires_at FROM staging_objects WHERE handle = ?").bind(H("h3")).first<any>())
+      (await env.DB.prepare("SELECT expires_at FROM sealed_handles WHERE handle = ?").bind(H("h3")).first<any>())
         .expires_at,
     ).toBe(row.expires_at + 5 * 60_000);
     expect((await audit(body.action_id)).results.map((r) => r.decision)).toEqual(["ask"]);

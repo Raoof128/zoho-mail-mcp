@@ -13,6 +13,7 @@ import { resolveAccount } from "../tools/accounts";
 import { executePending, roundOf, type ToolContext } from "../tools/gate";
 import { connectRequired, guarded, text } from "../tools/results";
 import { registerOrganiseTools } from "../tools/organise";
+import { registerAttachmentTools } from "../tools/attachments";
 import { registerReadTools } from "../tools/read";
 import { registerDraftTools } from "../tools/drafts";
 import { registerSendTools } from "../tools/send";
@@ -167,6 +168,7 @@ export function buildServer(env: Env, principal: Principal, deps: Deps, era: Era
   );
 
   registerOrganiseTools(server, toolContext, env);
+  registerAttachmentTools(server, toolContext, env);
   registerReadTools(server, toolContext, env);
   registerDraftTools(server, toolContext, env);
   registerSendTools(server, toolContext, env);

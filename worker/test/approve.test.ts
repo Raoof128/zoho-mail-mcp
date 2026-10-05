@@ -16,7 +16,7 @@ beforeAll(async () => {
   await seedUserAndAccount(env.DB, { userId: "owner-sub", accountId: "apa", alias: "personal", isDefault: true });
   await seedUserAndAccount(env.DB, { userId: "other-owner", accountId: "apb", alias: "personal", isDefault: true });
   await env.DB.prepare(
-    "INSERT INTO staging_objects (handle, user_id, account_id, direction, provider_ref, filename, mime, size, sha256, created_at, expires_at) VALUES (?, 'owner-sub', 'apa', 'upload', 'k', 'thesis.pdf', 'application/pdf', 2200000, ?, ?, ?)",
+    "INSERT INTO sealed_handles (handle, user_id, account_id, direction, provider_ref, filename, mime, size, sha256, created_at, expires_at) VALUES (?, 'owner-sub', 'apa', 'upload', '{}', 'thesis.pdf', 'application/pdf', 2200000, ?, ?, ?)",
   )
     .bind("sh_" + "a".repeat(43), "0".repeat(64), Date.now(), Date.now() + 600_000)
     .run();

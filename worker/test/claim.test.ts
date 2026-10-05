@@ -12,10 +12,10 @@ beforeAll(async () => {
 
 async function stageUpload(handle: string, accountId = "ca", userId = "cu") {
   await env.DB.prepare(
-    `INSERT INTO staging_objects (handle, user_id, account_id, direction, provider_ref, filename, mime, size, sha256, created_at, expires_at)
-     VALUES (?, ?, ?, 'upload', ?, 'f.pdf', 'application/pdf', 1, 'h', ?, ?)`,
+    `INSERT INTO sealed_handles (handle, user_id, account_id, direction, provider_ref, filename, mime, size, sha256, created_at, expires_at)
+     VALUES (?, ?, ?, 'upload', '{}', 'f.pdf', 'application/pdf', 1, '0000000000000000000000000000000000000000000000000000000000000000', ?, ?)`,
   )
-    .bind(handle, userId, accountId, `stg/${handle}`, Date.now(), Date.now() + 60_000)
+    .bind(handle, userId, accountId, Date.now(), Date.now() + 60_000)
     .run();
 }
 const H = (s: string) => "sh_" + s.padEnd(43, "A");
@@ -101,7 +101,7 @@ describe("claimPending", () => {
     const r = await claimPending(env.DB, { id: p.id, userId: "cu" });
     expect(r.handles).toEqual([H("ok1")]);
     const rows = await env.DB.prepare(
-      "SELECT handle, reserved_by_operation_id AS r FROM staging_objects WHERE handle IN (?, ?)",
+      "SELECT handle, reserved_by_operation_id AS r FROM sealed_handles WHERE handle IN (?, ?)",
     )
       .bind(H("ok1"), H("other"))
       .all<{ handle: string; r: string | null }>();

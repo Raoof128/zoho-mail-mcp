@@ -5,6 +5,7 @@ import { Browser, csrfFrom, mintToken } from "./browser";
 import type { FakeZoho } from "./fake-zoho";
 import { callTool as rawCall } from "./mcp-client";
 import { HOST } from "./test-env";
+import { registerCompanionClient } from "../src/auth/companion";
 
 const workers = new WeakMap<Deps, Worker>();
 const tokens = new Map<string, string>();
@@ -39,7 +40,23 @@ export async function mcpTokenFor(
   const key = `${scope}:${user}`;
   const cached = tokens.get(key);
   if (cached) return cached;
-  const t = await mintToken(worker, env, z, { scope, sub: user, email: `${user}@example.test` });
+  // Staging tokens are issued to the registered companion client on its loopback redirect, as in staging-api.test.
+  const t =
+    scope === "staging"
+      ? await (async () => {
+          const browser = new Browser(worker, env);
+          await browser.login(z, { sub: user, email: `${user}@example.test` });
+          const clientId = await registerCompanionClient({ ...env, OAUTH_PROVIDER: undefined as never }, worker);
+          return mintToken(worker, env, z, {
+            scope: "staging",
+            clientId,
+            redirectUri: "http://127.0.0.1:61234/callback",
+            browser,
+            sub: user,
+            email: `${user}@example.test`,
+          });
+        })()
+      : await mintToken(worker, env, z, { scope, sub: user, email: `${user}@example.test` });
   tokens.set(key, t.accessToken);
   return t.accessToken;
 }

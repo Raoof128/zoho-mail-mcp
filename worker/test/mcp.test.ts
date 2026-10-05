@@ -29,6 +29,7 @@ const ALL_TOOLS = [
   "create_draft",
   "create_label",
   "delete_label",
+  "download_attachment",
   "execute_pending",
   "flag_message",
   "forward",
@@ -113,7 +114,7 @@ describe("protocol", () => {
     const list = await rpc(worker, testEnv(), token, "tools/list", {}, 2);
     const names = (list.json?.result?.tools ?? []).map((t: { name: string }) => t.name).sort();
     expect(names).toEqual(ALL_TOOLS);
-    expect(names).toHaveLength(48); // M2 +2 read; M4 +9 organise; download_attachment returns in M5 (49)
+    expect(names).toHaveLength(49); // M2 +2 read; M4 +9 organise; download_attachment returns in M5 (49)
     const byName = Object.fromEntries(
       (list.json.result.tools as { name: string; annotations?: Record<string, boolean> }[]).map((t) => [
         t.name,
@@ -135,8 +136,11 @@ describe("protocol", () => {
       "list_accounts",
     ])
       expect(byName[n]!.readOnlyHint).toBe(true);
-    // download_attachment returns in M5 Task 5.1 with the same annotations: readOnly false, destructive false, openWorld false.
-    expect(byName.download_attachment).toBeUndefined();
+    expect(byName.download_attachment).toMatchObject({
+      readOnlyHint: false,
+      destructiveHint: false,
+      openWorldHint: false,
+    });
     for (const n of ["send_message", "reply", "send_draft", "forward"])
       expect(byName[n]).toMatchObject({ readOnlyHint: false, destructiveHint: false, openWorldHint: true });
     for (const n of [

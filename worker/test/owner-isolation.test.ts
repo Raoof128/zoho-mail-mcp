@@ -6,8 +6,9 @@ import { accountById, resolveAccount, trustContext } from "../src/tools/accounts
 import { assertAccount, decide, effectiveLevel, setPolicy } from "../src/policy/engine";
 import { cancelPending } from "../src/approval/pending";
 import { claimPending } from "../src/approval/claim";
-import { ack, extendExpiry, listUploadHandles } from "../src/staging/store";
-import { leasedDownload } from "../src/staging/downloads";
+import { extendExpiry, listUploadHandles } from "../src/staging/sealed";
+import { acknowledgeDownload, leasedDownload } from "../src/staging/downloads";
+import { defaultDeps } from "../src/deps";
 import { McpError } from "@zoho-mail-mcp/shared/errors";
 
 // Owner A and owner B each hold an account. Every case below is owner A reaching for something that
@@ -179,9 +180,9 @@ describe("owner and account isolation", () => {
       admissions: (await env.DB.prepare("SELECT count(*) AS n FROM download_admissions").first<{ n: number }>())!.n,
       streams: (await env.DB.prepare("SELECT count(*) AS n FROM download_streams").first<{ n: number }>())!.n,
       reserved: (await env.DB.prepare(
-        "SELECT count(*) AS n FROM staging_objects WHERE reserved_by_operation_id IS NOT NULL",
+        "SELECT count(*) AS n FROM sealed_handles WHERE reserved_by_operation_id IS NOT NULL",
       ).first<{ n: number }>())!.n,
-      consumed: (await env.DB.prepare("SELECT count(*) AS n FROM staging_objects WHERE consumed_at IS NOT NULL").first<{
+      consumed: (await env.DB.prepare("SELECT count(*) AS n FROM sealed_handles WHERE consumed_at IS NOT NULL").first<{
         n: number;
       }>())!.n,
     });
@@ -189,10 +190,11 @@ describe("owner and account isolation", () => {
     const seedStaged = async (handle: string, userId: string, accountId: string, direction: string) => {
       const now = Date.now();
       await env.DB.prepare(
-        `INSERT INTO staging_objects (handle,user_id,account_id,direction,filename,mime,size,sha256,provider_ref,created_at,expires_at,cleanup_state)
-         VALUES (?,?,?,?,'f.txt','text/plain',3,'${"a".repeat(64)}',?,?,?,'available')`,
+        // Sealed handles since M5 (spec D16): the bytes stay with Zoho.
+        `INSERT INTO sealed_handles (handle,user_id,account_id,direction,filename,mime,size,sha256,provider_ref,created_at,expires_at)
+         VALUES (?,?,?,?,'f.txt','text/plain',3,'${"a".repeat(64)}','{}',?,?)`,
       )
-        .bind(handle, userId, accountId, direction, `k/${handle}`, now, now + 3_600_000)
+        .bind(handle, userId, accountId, direction, now, now + 3_600_000)
         .run();
     };
 
@@ -229,11 +231,11 @@ describe("owner and account isolation", () => {
     it("owner A cannot extend the expiry of owner B's handle", async () => {
       const handle = "sh_" + "C".repeat(43);
       await seedStaged(handle, B, "acc-b", "upload");
-      const original = (await env.DB.prepare("SELECT expires_at AS e FROM staging_objects WHERE handle=?")
+      const original = (await env.DB.prepare("SELECT expires_at AS e FROM sealed_handles WHERE handle=?")
         .bind(handle)
         .first<{ e: number }>())!.e;
       await extendExpiry(env.DB, [handle], A, "acc-a", original + 86_400_000);
-      const after = (await env.DB.prepare("SELECT expires_at AS e FROM staging_objects WHERE handle=?")
+      const after = (await env.DB.prepare("SELECT expires_at AS e FROM sealed_handles WHERE handle=?")
         .bind(handle)
         .first<{ e: number }>())!.e;
       expect(after).toBe(original);
@@ -243,7 +245,7 @@ describe("owner and account isolation", () => {
       const handle = "sh_" + "D".repeat(43);
       await seedStaged(handle, B, "acc-b", "download");
       const before = await counts();
-      expect(await code(() => leasedDownload(env, A, handle))).toBe("handle_invalid");
+      expect(await code(() => leasedDownload(env, defaultDeps, A, handle))).toBe("handle_invalid");
       expect(await counts()).toEqual(before);
       const forA = await env.DB.prepare(
         "SELECT (SELECT count(*) FROM download_admissions WHERE user_id=?) AS adm, (SELECT count(*) FROM download_streams WHERE user_id=?) AS str",
@@ -257,9 +259,9 @@ describe("owner and account isolation", () => {
       const handle = "sh_" + "E".repeat(43);
       await seedStaged(handle, B, "acc-b", "download");
       const before = await counts();
-      expect(await ack(env, { handle, userId: A })).toBe(false);
+      expect(await acknowledgeDownload(env, A, handle)).toBeNull();
       expect(await counts()).toEqual(before);
-      const row = await env.DB.prepare("SELECT consumed_at FROM staging_objects WHERE handle=?")
+      const row = await env.DB.prepare("SELECT consumed_at FROM sealed_handles WHERE handle=?")
         .bind(handle)
         .first<{ consumed_at: number | null }>();
       expect(row?.consumed_at).toBeNull();

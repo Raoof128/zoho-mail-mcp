@@ -130,9 +130,9 @@ export function accountAssert(db: D1Database, user: string, id: string, version?
 }
 export function byteQuota(db: D1Database, user: string, size: number) {
   const used =
-    "COALESCE((SELECT sum(size) FROM staging_objects),0)+COALESCE((SELECT sum(reserved_bytes) FROM upload_generations WHERE cleanup_state IN ('reserved','debt','deleting')),0)+COALESCE((SELECT sum(reserved_bytes) FROM staging_ingests WHERE state IN ('active','debt')),0)+COALESCE((SELECT sum(reserved_bytes) FROM staging_materializations),0)";
+    "COALESCE((SELECT sum(size) FROM sealed_handles WHERE consumed_at IS NULL),0)+COALESCE((SELECT sum(reserved_bytes) FROM upload_generations WHERE cleanup_state IN ('reserved','debt','deleting')),0)+COALESCE((SELECT sum(reserved_bytes) FROM staging_ingests WHERE state IN ('active','debt')),0)+COALESCE((SELECT sum(reserved_bytes) FROM staging_materializations),0)";
   const own =
-    "COALESCE((SELECT sum(size) FROM staging_objects WHERE user_id=?),0)+COALESCE((SELECT sum(reserved_bytes) FROM upload_generations WHERE user_id=? AND cleanup_state IN ('reserved','debt','deleting')),0)+COALESCE((SELECT sum(reserved_bytes) FROM staging_ingests WHERE user_id=? AND state IN ('active','debt')),0)+COALESCE((SELECT sum(reserved_bytes) FROM staging_materializations WHERE user_id=?),0)";
+    "COALESCE((SELECT sum(size) FROM sealed_handles WHERE user_id=? AND consumed_at IS NULL),0)+COALESCE((SELECT sum(reserved_bytes) FROM upload_generations WHERE user_id=? AND cleanup_state IN ('reserved','debt','deleting')),0)+COALESCE((SELECT sum(reserved_bytes) FROM staging_ingests WHERE user_id=? AND state IN ('active','debt')),0)+COALESCE((SELECT sum(reserved_bytes) FROM staging_materializations WHERE user_id=?),0)";
   return [
     assertion(db, `${used}+?<=?`, [size, L.bytesGlobal]),
     assertion(db, `${own}+?<=?`, [user, user, user, user, size, L.bytesOwner]),

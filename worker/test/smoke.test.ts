@@ -12,9 +12,9 @@ describe("worker smoke", () => {
     expect(res.status).toBe(404);
   });
 
-  it("has the D1, R2 and KV bindings", () => {
+  it("has the D1 and KV bindings and no byte store (spec D16)", () => {
     expect(env.DB).toBeDefined();
-    expect(env.STAGING).toBeDefined();
+    expect((env as unknown as Record<string, unknown>).STAGING).toBeUndefined();
     expect(env.OAUTH_KV).toBeDefined();
   });
 });

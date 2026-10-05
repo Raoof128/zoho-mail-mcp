@@ -13,6 +13,7 @@ import { connectRoutes } from "./zoho/connect";
 import { accountsRoutes } from "./web/pages/accounts";
 import { approveRoutes } from "./web/pages/approve";
 import { auditRoutes } from "./web/pages/audit";
+import { downloadLinkRoutes } from "./staging/routes";
 import { policyRoutes } from "./web/pages/policy";
 import { requireScope } from "./auth/principal";
 import { buildServer } from "./mcp/server";
@@ -44,6 +45,7 @@ function oauthOptions(env: Env, deps: Deps): OAuthProviderOptions<Env> {
       ...accountsRoutes,
       ...policyRoutes,
       ...auditRoutes,
+      ...downloadLinkRoutes(deps),
     ]),
     authorizeEndpoint: "/authorize",
     tokenEndpoint: "/token",

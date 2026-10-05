@@ -22,7 +22,7 @@ const DEFINITIVE_REFUSALS = new Set([400, 401, 403, 404, 405, 413, 415, 422]);
 import { insertOperationStatement } from "../operations/journal";
 import { decide } from "../policy/engine";
 import { LIMITS } from "../policy/limits";
-import { extendExpiryStatements, reserveStatements } from "../staging/reserve";
+import { extendExpiryStatement, reserveStatements } from "../staging/sealed";
 import { accountById, type AccountRef } from "./accounts";
 import { bindIdempotencyStatements, lookupIdempotency, replayFor } from "./idempotency";
 import { approvalUrl, pendingApprovalResult, text, type ToolResult } from "./results";
@@ -190,9 +190,14 @@ export async function runGated(t: ToolContext, input: GateInput): Promise<ToolRe
       }),
     ];
     // Spec 3.7: a handle staged 29 minutes ago must not expire between approval and execution.
-    stmts.push(
-      ...extendExpiryStatements(db, built.handles, userId, input.account.id, now + PENDING_TTL_MS + HOLD_MARGIN_MS),
+    const hold = extendExpiryStatement(
+      db,
+      built.handles,
+      userId,
+      input.account.id,
+      now + PENDING_TTL_MS + HOLD_MARGIN_MS,
     );
+    if (hold) stmts.push(hold);
     if (input.idempotencyKey)
       stmts.push(
         ...bindIdempotencyStatements(db, {

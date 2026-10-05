@@ -52,7 +52,7 @@ async function viewRows(env: Env, pending: PendingRow, view: ApprovalView): Prom
         view.handles.length > 0
           ? (
               await env.DB.prepare(
-                `SELECT handle, filename, size FROM staging_objects WHERE user_id = ? AND account_id = ? AND handle IN (${view.handles.map(() => "?").join(",")})`,
+                `SELECT handle, filename, size FROM sealed_handles WHERE user_id = ? AND account_id = ? AND handle IN (${view.handles.map(() => "?").join(",")})`,
               )
                 .bind(pending.user_id, pending.account_id, ...view.handles)
                 .all<{ handle: string; filename: string; size: number }>()

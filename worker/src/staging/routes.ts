@@ -3,9 +3,8 @@ import { TransferIntent } from "@zoho-mail-mcp/shared/staging";
 import { ZodError } from "zod";
 import type { Deps } from "../deps";
 import { requireScope } from "../auth/principal";
-import type { FetchHandler } from "../web/router";
-import { openForRead } from "./store";
-import { acknowledgeDownload } from "./downloads";
+import { type FetchHandler, type Route, requireSession } from "../web/router";
+import { acknowledgeDownload, leasedDownload } from "./downloads";
 import { ensureTransfer } from "./transfers";
 import { acceptUpload } from "./upload";
 const HANDLE = /^\/staging\/(sh_[A-Za-z0-9_-]{43})(\/ack)?$/;
@@ -63,7 +62,7 @@ export function stagingApiHandler(deps: Deps): FetchHandler {
           return out ? json(out) : json({ error: "handle_invalid" }, 404);
         }
         if (!m[2] && request.method === "GET") {
-          const { row, body } = await openForRead(env, { handle: m[1]!, userId: principal.userId });
+          const { row, body } = await leasedDownload(env, deps, principal.userId, m[1]!);
           return new Response(body, {
             headers: {
               "content-type": row.mime,
@@ -97,4 +96,40 @@ export function stagingApiHandler(deps: Deps): FetchHandler {
       }
     },
   };
+}
+
+/**
+ * One-time download link for claude.ai, where no companion runs. The id alone is not enough: the owner's signed-in
+ * browser session must match the link's owner, so a link an injected agent mails out gives nothing away. The body is
+ * always a download (opaque type, nosniff, attachment) so an HTML attachment can never render on this origin.
+ */
+export function downloadLinkRoutes(deps: Deps): Route[] {
+  return [
+    {
+      method: "GET",
+      pattern: /^\/dl\/(dl_[A-Za-z0-9_-]{43})$/,
+      handler: async ({ env, request, url }) => {
+        const s = await requireSession(env, request);
+        if (s instanceof Response) return s;
+        const id = /^\/dl\/(dl_[A-Za-z0-9_-]{43})$/.exec(url.pathname)![1]!;
+        const now = Date.now();
+        const link = await env.DB.prepare(
+          "UPDATE download_links SET consumed_at=? WHERE id=? AND user_id=? AND consumed_at IS NULL AND expires_at>? RETURNING handle",
+        )
+          .bind(now, id, s.userId, now)
+          .first<{ handle: string }>();
+        if (!link) return new Response("Not found", { status: 404, headers: { "cache-control": "no-store" } });
+        const { row, body } = await leasedDownload(env, deps, s.userId, link.handle);
+        return new Response(body, {
+          headers: {
+            "content-type": "application/octet-stream",
+            "x-content-type-options": "nosniff",
+            "content-disposition": `attachment; filename*=UTF-8''${encodeURIComponent(row.filename)}`,
+            "content-length": String(row.size),
+            "cache-control": "no-store",
+          },
+        });
+      },
+    },
+  ];
 }

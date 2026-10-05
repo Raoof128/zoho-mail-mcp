@@ -146,3 +146,25 @@ export async function release(db: D1Database, operationId: string): Promise<void
     .bind(operationId)
     .run();
 }
+
+/** Statements that mark an operation's reserved uploads used (settled executed). */
+export function consumeStatements(db: D1Database, operationId: string, now: number): D1PreparedStatement[] {
+  return [
+    db
+      .prepare(
+        "UPDATE sealed_handles SET consumed_at = ?, reserved_by_operation_id = NULL WHERE reserved_by_operation_id = ? AND consumed_at IS NULL",
+      )
+      .bind(now, operationId),
+  ];
+}
+
+/** Statements that return an operation's unconsumed reservations to the pool (settled failed_safe). */
+export function releaseStatements(db: D1Database, operationId: string): D1PreparedStatement[] {
+  return [
+    db
+      .prepare(
+        "UPDATE sealed_handles SET reserved_by_operation_id = NULL WHERE reserved_by_operation_id = ? AND consumed_at IS NULL",
+      )
+      .bind(operationId),
+  ];
+}
