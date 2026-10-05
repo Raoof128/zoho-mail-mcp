@@ -6,6 +6,26 @@ release.
 
 ## [Unreleased]
 
+### Zoho fork: M6 companion and installer (2026-10-05)
+
+- **No native binary.** The Swift helper is replaced by an in-process Node port behind the same
+  protocol: `node:sqlite` journal, Keychain through `security -i` on stdin, file confinement with an
+  ancestor walk, `O_NOFOLLOW`, a hard-link publish that never overwrites and a realpath re-check (D15).
+- **One line to install.** `curl -fsSL https://HOST/install.sh | sh` downloads the companion once,
+  installs the exact file it verified, installs Node 24.21.0 if needed (checksum and signer pinned),
+  creates `Downloads/Mail/To Send` and `Downloads/Mail/Received`, signs in (retried on any later run
+  until it succeeds), adds a login agent that runs recovery, and configures Claude Code, Codex and
+  Claude Desktop. The Worker serves the four installer files and the public companion client id.
+- **Recovery that finishes.** A publish interrupted between link and unlink is completed on the next
+  start; an unreadable Desktop or Documents folder is skipped instead of failing every tool; network
+  mounts are never stat'd.
+- **Deferred (review minors):** Desktop config merge edge cases (symlink, empty or BOM file, huge
+  integers, a user `env` on our entry, temp leak, no restart hint); installer hardening (`--proto`,
+  client id validation, `main()` wrapper, not replacing an older global Node silently); launchctl
+  bootout/bootstrap race; Keychain readable by same-user processes through `security` (document it),
+  cap applies to wrapped JSON; free-space check lost `MNT_LOCAL`; 6-minute lock wait outlasts client
+  timeouts; deploy must run `build:companion` first.
+
 ### Zoho fork: M5 attachments without a byte store (2026-10-05)
 
 - **No bytes in Cloudflare.** Uploads stream once to Zoho through a counting transform and an incremental
