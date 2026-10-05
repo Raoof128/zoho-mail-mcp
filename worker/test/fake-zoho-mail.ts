@@ -73,6 +73,8 @@ export class FakeZohoMail {
   readonly requests: Request[] = [];
   readonly faults: Fault[] = [];
   uploadLifetimeMs = 24 * 3_600_000;
+  /** Models a Zoho that answers folders/{f}/messages/{id}/... for a message stored in another folder. */
+  detailsIgnoreFolder = false;
   private seq = 1000;
   private id() {
     return String(++this.seq);
@@ -275,7 +277,7 @@ export class FakeZohoMail {
     const detail = /^\/folders\/(\d+)\/messages\/(\d+)\/(details|content|header|attachmentinfo)$/.exec(path);
     if (req.method === "GET" && detail) {
       const m = this.get(accountId, detail[2]!);
-      if (!m || m.folderId !== detail[1]) return this.err(404, "INVALID_MESSAGE");
+      if (!m || (m.folderId !== detail[1] && !this.detailsIgnoreFolder)) return this.err(404, "INVALID_MESSAGE");
       if (detail[3] === "details")
         return Response.json({ status: { code: 200, description: "success" }, data: this.listRow(m) });
       if (detail[3] === "content")

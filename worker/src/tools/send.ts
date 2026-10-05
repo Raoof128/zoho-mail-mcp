@@ -77,12 +77,25 @@ async function modifiersFor(
   env: Env,
   userId: string,
   account: AccountRef,
-  p: { to: string[]; cc: string[]; bcc: string[]; body?: string | undefined; html_body?: string | undefined },
+  p: {
+    to: string[];
+    cc: string[];
+    bcc: string[];
+    subject?: string | undefined;
+    body?: string | undefined;
+    html_body?: string | undefined;
+  },
   hasAttachments: boolean,
+  inline: DecodedInline[] = [],
 ): Promise<Modifier[]> {
   const mods = recipientModifiers([...p.to, ...p.cc, ...p.bcc], await trustContext(env, userId, account));
   if (hasAttachments) mods.unshift("+attachment");
-  const text = `${p.body ?? ""}\n${p.html_body ? htmlToText(p.html_body) : ""}`;
+  // Everything the server can read is scanned: subject, both bodies and inline text attachments (security review).
+  const inlineText = inline
+    .filter((d) => d.mime.startsWith("text/"))
+    .map((d) => new TextDecoder().decode(d.bytes))
+    .join("\n");
+  const text = `${p.subject ?? ""}\n${p.body ?? ""}\n${p.html_body ? htmlToText(p.html_body) : ""}\n${inlineText}`;
   if (SENSITIVE.some((re) => re.test(text)) && !mods.includes("+sensitive")) mods.push("+sensitive");
   return mods;
 }
@@ -124,8 +137,9 @@ export async function planSend(
       env,
       a.userId,
       account,
-      { ...recipients, body: args.body, html_body: args.html_body },
+      { ...recipients, subject: args.subject, body: args.body, html_body: args.html_body },
       files.length > 0,
+      inline,
     ),
     summary: `${verb ? `${verb} · ` : ""}${recipientSummary({ ...recipients, subject: args.subject })} · ${attachmentSummary(files)}`,
     facts: {
@@ -290,7 +304,13 @@ export function registerSendTools(server: McpServer, toolContext: (ctx: ServerCo
     plan: async (e, t, account, args, inline) => {
       const a = planAcct(t, account);
       const ref = await resolveRef(e, t.deps, a, args);
-      const v = await getMessage(e, t.deps, a, ref, "PLAIN_TEXT", { bodyCharLimit: 200_000, includeBody: true });
+      const v = await getMessage(e, t.deps, a, ref, "PLAIN_TEXT", { bodyCharLimit: 600_000, includeBody: true });
+      // Spec D17: a send is never silently truncated. An original longer than the body limit is refused.
+      if (v.body_truncated)
+        throw new McpError(
+          "limit_exceeded",
+          "limit_exceeded: the original is longer than a forward can carry; forward it from Zoho Mail instead",
+        );
       // Originals are refused above 10 before any upload (spec D17, G19); picked files go through carryPlan's cap.
       if (args.include_original_attachments && v.attachments.length > 10)
         throw new McpError(

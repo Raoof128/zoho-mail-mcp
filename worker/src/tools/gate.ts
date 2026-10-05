@@ -20,6 +20,8 @@ import { operationFor, recordFailure, settleDirect, sendResult } from "../operat
 import type { SendRecoveryContext } from "../operations/send";
 import { GmailApiError } from "../google/gmail";
 import { ZohoApiError } from "../zoho/client";
+
+const DEFINITIVE_REFUSALS = new Set([400, 401, 403, 404, 405, 413, 415, 422]);
 import { insertOperationStatement } from "../operations/journal";
 import { decide } from "../policy/engine";
 import { LIMITS } from "../policy/limits";
@@ -468,11 +470,12 @@ export async function runExecutor(t: ToolContext, run: ExecutorRun): Promise<Rec
     if (
       !run.operationId ||
       state === "claimed" ||
-      // A definitive 4xx after the request opened means the provider refused it: nothing was sent.
+      // Only a definitive refusal after the request opened means nothing was sent. 408, 409, 425, 429 and the like can
+      // come from a proxy after the provider acted, so they stay delivery_unknown (security review of ddf6e59).
       (state === "executing" &&
-        (e instanceof GmailApiError || e instanceof ZohoApiError) &&
-        e.status >= 400 &&
-        e.status < 500)
+        ((e instanceof ZohoApiError && DEFINITIVE_REFUSALS.has(e.status)) ||
+          // Gmail-era tools keep Gmail's rule (any 4xx is a refusal) until M4 retires them.
+          (e instanceof GmailApiError && e.status >= 400 && e.status < 500)))
     ) {
       await settleFailedSafe(db, { operationId: run.operationId, pendingId: run.pendingId, audit, error: err.code });
       throw err;

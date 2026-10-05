@@ -53,12 +53,27 @@ function refuseAttachments(args: { attachments?: string[] | undefined; inline_at
     );
 }
 
+/**
+ * The draft tools move "the draft" to Trash under draft.write and send.draft, so they must only ever act on a draft:
+ * the folder Zoho reports for the message must be Drafts, not merely the folder in the request path (security review).
+ */
+async function assertDraft(env: Env, deps: Deps, a: ZohoAcct, draftId: string, folderId: string): Promise<void> {
+  const sys = await systemFolders(env, deps, a);
+  if (folderId !== sys.drafts)
+    throw new McpError(
+      "handle_invalid",
+      `handle_invalid: ${draftId} is not a draft; the draft tools act only on Drafts`,
+    );
+}
+
 async function readDraft(env: Env, deps: Deps, a: ZohoAcct, draftId: string): Promise<MessageView> {
   const sys = await systemFolders(env, deps, a);
-  return getMessage(env, deps, a, { folderId: sys.drafts, messageId: draftId }, "FULL_CONTENT", {
+  const v = await getMessage(env, deps, a, { folderId: sys.drafts, messageId: draftId }, "FULL_CONTENT", {
     bodyCharLimit: 600_000,
     includeBody: true,
   });
+  await assertDraft(env, deps, a, draftId, v.folder_id);
+  return v;
 }
 
 /** What the owner approves for send_draft; the same fields are re-read at execution and must still match. */
@@ -193,6 +208,8 @@ export function registerDraftTools(
       let cleanup: "done" | "pending" = "pending";
       try {
         await messageDetails(e, d, a, sys.drafts, out.message_id); // the new draft exists before the old one goes
+        const old = await messageDetails(e, d, a, sys.drafts, p.previous_draft_id!);
+        await assertDraft(e, d, a, p.previous_draft_id!, old.folderId); // still a draft at the moment it is moved
         await updateMessages(e, d, a, "moveMessage", [p.previous_draft_id!], { destfolderId: sys.trash });
         cleanup = "done";
       } catch {
