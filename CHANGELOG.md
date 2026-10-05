@@ -6,6 +6,25 @@ release.
 
 ## [Unreleased]
 
+### Zoho fork: M2 read tools (2026-10-05)
+
+- **Read tools on Zoho.** `search_messages`, `search_threads`, `get_thread`, `get_message`, `list_drafts`,
+  `get_draft`, `list_labels` and `list_folders` answer from Zoho Mail. Every result carries `id` and
+  `folder_id`. A bare message id is found by probing the system folders.
+- **Budgets.** A full thread costs one list call plus one call per body, so 8 bodies fit the 10-request
+  limit. `next_cursor` passed back as `cursor` continues. Each tool call has its own budget.
+- **Documented shapes.** List and search rows parse in both of Zoho's documented formats. Exact 19-digit
+  ids are read from `URI`, addresses are unescaped, and "Not Provided" means empty. Folder search uses
+  `in:`.
+- **Hardening.** HTML to text runs in one linear pass. A probe refusal other than not-found surfaces. A
+  custom folder cannot shadow a system folder.
+- **Interim.** `download_attachment` is absent until M5. `LegacyGmailId` stays on the Gmail-backed tools
+  until M3 and M4.
+- **Deferred (review minors):** unvalidated `page_token` digits; search misses the last 2 minutes;
+  entity-decoding gaps; RAW truncation has no flag; `archived` and `label_ids` are placeholders; `date`
+  has no `sentDateInGMT` fallback; the address splitter ignores escaped quotes; thread truncation by
+  `max_messages` is not reported.
+
 ### Zoho fork: M0 and M1 (2026-10-04)
 
 This repository is a fork of gmail-mcp being rebuilt for Zoho Mail (AU). The Gmail-era text below this

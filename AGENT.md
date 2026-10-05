@@ -30,3 +30,29 @@ Agent work on this repository, newest last. Each entry: date (Australia/Sydney),
 - Task 1.6: two recovery tests had reached the real accounts.zoho.com.au. Their stubs moved to `zohoFetch`, and `test/setup.ts` now rejects all real fetches. Cost if wrong: none.
 - Task 1.6: recovery-http now matches `ZOHO.tokenUrl`. The plan's flaky TTL test was made deterministic. Cost if wrong: none.
 - Final: the security review's "auth-bypass" in recovery-http is the same token leak, which the transport fix closed. The final reviewer ran on Sonnet, per Raouf's standing subagent rule. Cost if wrong: a weaker review; ask for a second pass.
+
+---
+
+## Raouf: 2026-10-05 (Australia/Sydney) - Zoho Mail MCP: M2 read tools executed, reviewed, fixed and pushed
+
+**Scope:** Raouf: "proceed to M2". Code in `~/Desktop/Raouf/zoho-mail-mcp`, branch `feat/m2-read-tools` (off `feat/m0-m1`), pushed to the private `Raoof128/zoho-mail-mcp`. Haji: carried-item notes in the M3, M4 and M5 plans and these logs. Nothing deployed, no live Zoho calls.
+
+**Summary:** M2 Tasks 2.1 to 2.5 executed inline under TDD: typed Zoho Mail wrappers and Zoho-shaped schemas, the message view model, system folders cached in the account Durable Object, and the eight read tools (`search_messages`, `search_threads`, `get_thread`, `get_message`, `list_drafts`, `get_draft`, `list_labels`, `list_folders`) answering from Zoho with each message's own folder id. Plan defects ruled during execution: deleting `GmailId` outright broke 55 Gmail-era tests, so an interim `LegacyGmailId` stays on Gmail-backed schemas until M3 and M4 rewrite them; `get_thread` as planned spent 3 Zoho calls per body, so 3 bodies used the whole 10-request budget, and thread bodies now cost one call each (1 + 8 = 9); the tool-call id is drawn once per invocation so per-call budgets hold. The final review (Sonnet) found one Critical and eight Important issues, verified against the saved official Zoho pages: the code was written to the test double, not to Zoho's documented list and search shapes (string versus numeric fields, lowercase `receivedtime`, numeric flag ids, escaped addresses, and 19-digit ids that lose precision as JSON numbers, now read from `URI`); folder search used `folder:` instead of `in:`; HTML to text was quadratic (22 s on 480 KB of hostile markup); `get_thread`'s cursor could not be passed back; `search_threads` skipped threads between pages; list calls omitted To details; a bare-id probe hid outages; a custom folder named Sent could shadow the real one. All fixed test-first; the double now answers in the documented shapes. Cross-folder thread listing and the meaning of list status "1" are carried to the M0 probe on the client's tenant.
+
+**Files Changed:** zoho-mail-mcp: `shared/src/schemas.ts`, `worker/src/zoho/{mail,messages,folders,client}.ts`, `worker/src/tools/read.ts`, tests `zoho-mail`, `zoho-messages`, `zoho-folders`, `read-tools`, `m2-review-fixes`, `mcp`, `send-tools`, `fake-zoho-mail`; `AGENT.md`, `CHANGELOG.md`; plans M3 to M5 (carried notes). Haji: the same three plan notes, `AGENT.md`, `CHANGELOG.md`, `CLAUDE.md`.
+
+**Verification:** `npm run verify` exit 0: Worker 717 passed and 1 todo (93 files), shared 7, companion 23 passed and 1 skipped, qualification 165. Every review-fix test was watched failing for the stated reason; tests that passed early were proven by toggling the code they guard.
+
+**Follow-ups:** M3 compose and recovery is next. Probe items for the client's tenant: thread listing across folders without `folderId`, list `status` "1", the `details`, `content`, `header` and `originalmessage` shapes. Eight review minors deferred (listed in the zoho CHANGELOG). `download_attachment` returns in M5 Task 5.1.
+
+**M2 rulings (from the ledger, deleted after the clean review):**
+
+- Task 2.1: `ZohoId` (digits) for all new Zoho code; an interim `LegacyGmailId` stays on Gmail-backed schemas, moving to `ZohoId` as M3 and M4 rewrite each tool and deleted in M4 Task 4.2. Cost if wrong: a Gmail-shaped id passes validation on a Zoho tool until then, and Zoho answers 404.
+- Task 2.1: the interim Gmail read path dropped `include_spam_trash` and the drafts query. A test now proves a label delete works while a message delete is still refused. Cost if wrong: none.
+- Task 2.4: the tool-call id is drawn once per invocation, so per-call budgets hold. Cost if wrong: none.
+- Task 2.4: thread bodies cost one Zoho call each (1 + 8 = 9). Thread messages carry no threading headers or attachment lists; `get_message` gives those. Cost if wrong: extra calls for an agent that needs every header.
+- Task 2.4: the test fixture uses the real slot alias. The read inputs moved to `ZohoId`. `download_attachment` is unregistered until M5. A Gmail send test reads part ids from the Gmail double. Cost if wrong: test-only, and no attachment download until M5.
+- Task 2.5: `google/messages.ts` stays until M3 and M4, because the Gmail-era tools still use it. Cost if wrong: none.
+- Final: a missing system folder stays an error, and the 10-minute folder cache stays, because system folders cannot be deleted. Cost if wrong: 404s for up to 10 minutes after an impossible event.
+- Final: cross-folder thread listing is carried to the M0 probe. Cost if wrong: `get_thread` omits replies stored in other folders.
+- Final: the test double answers in the documented shapes. The reviewer ran on Sonnet. Cost if wrong: test-only, and a weaker review.
