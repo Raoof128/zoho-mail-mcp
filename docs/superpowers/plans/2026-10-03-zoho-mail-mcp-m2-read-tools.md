@@ -999,13 +999,11 @@ export function registerReadTools(server: McpServer, toolContext: (ctx: ServerCo
         const prev = byThread.get(k);
         if (!prev || r.receivedTime > prev.receivedTime) byThread.set(k, r);
       }
-      const threads = [...byThread.values()]
-        .slice(0, p.limit)
-        .map((r) => ({
-          id: r.threadId || r.messageId,
-          message_count: r.threadCount,
-          newest: messageView(r, { format: "METADATA_ONLY", bodyCharLimit: 0, includeBody: false }),
-        }));
+      const threads = [...byThread.values()].slice(0, p.limit).map((r) => ({
+        id: r.threadId || r.messageId,
+        message_count: r.threadCount,
+        newest: messageView(r, { format: "METADATA_ONLY", bodyCharLimit: 0, includeBody: false }),
+      }));
       return { threads, ...(rows.length === 200 ? { next_page_token: String(start + 200) } : {}) };
     },
   });

@@ -588,13 +588,11 @@ describe("send tools on Zoho", () => {
         message_id: m.messageId,
         folder_id: m.folderId,
         to: ["rcp@example.test"],
-        attach_from_message: atts
-          .slice(0, 11)
-          .map((a, i) => ({
-            message_id: m.messageId,
-            folder_id: m.folderId,
-            attachment_id: z.mail.get(Z, m.messageId)!.attachments[i]!.attachmentId,
-          })),
+        attach_from_message: atts.slice(0, 11).map((a, i) => ({
+          message_id: m.messageId,
+          folder_id: m.folderId,
+          attachment_id: z.mail.get(Z, m.messageId)!.attachments[i]!.attachmentId,
+        })),
       }),
     ).rejects.toMatchObject({ code: "budget_exceeded" });
   });

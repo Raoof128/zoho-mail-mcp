@@ -7,7 +7,7 @@ import { getAccessToken } from "./tokens";
 
 export type ZohoAcct = { userId: string; accountId: string; toolCallId: string };
 export type ZohoRequest = {
-  method: "GET" | "POST" | "PUT";
+  method: "GET" | "POST" | "PUT" | "DELETE";
   /** Relative to /api/accounts/{zohoAccountId}/ when scope is "account", to /api/ when "root". */
   path: string;
   scope?: "account" | "root";

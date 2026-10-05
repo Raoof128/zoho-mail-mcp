@@ -401,6 +401,19 @@ export class FakeZohoMail {
           return this.err(400, "INVALID_PARAMETER");
       }
     }
+    const labelDelete = req.method === "DELETE" ? /^\/labels\/(\d+)$/.exec(path) : null;
+    if (labelDelete) {
+      // A label delete is allowed under ZohoMail.tags.ALL; it removes the label from every message.
+      const id = labelDelete[1]!;
+      const before = this.labels.get(accountId) ?? [];
+      if (!before.some((l) => l.labelId === id)) return this.err(404, "LABEL_NOT_FOUND");
+      this.labels.set(
+        accountId,
+        before.filter((l) => l.labelId !== id),
+      );
+      mine.forEach((m) => (m.labels = m.labels.filter((l) => l !== id)));
+      return Response.json({ status: { code: 200, description: "success" } });
+    }
     if (req.method === "DELETE") return this.err(401, "INVALID_OAUTHSCOPE", "array"); // the token never has messages.DELETE
     return this.err(404, "URL_RULE_NOT_CONFIGURED");
   }

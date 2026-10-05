@@ -48,20 +48,28 @@ export type UploadIntent = z.infer<typeof UploadIntent>;
 export const MESSAGE_FORMATS = ["MINIMAL", "METADATA_ONLY", "PLAIN_TEXT", "FULL_CONTENT", "RAW"] as const;
 export const MessageFormat = z.enum(MESSAGE_FORMATS);
 export type MessageFormat = z.infer<typeof MessageFormat>;
-export const GmailId = z
+/** Zoho message, thread, folder, label and account ids are decimal digits. */
+export const ZohoId = z.string().regex(/^\d{1,32}$/);
+export const ZohoFolderName = z.string().min(1).max(255);
+/**
+ * Interim: the id shape of tools still backed by the Gmail API. Every Zoho id also matches it. Each schema moves to
+ * ZohoId when its tool is rewritten (M2 Task 2.4 read inputs, M3 compose and send, M4 labels and organise); M4 Task 4.2
+ * deletes this.
+ */
+export const LegacyGmailId = z
   .string()
   .min(1)
   .max(256)
   .regex(/^[A-Za-z0-9_-]+$/);
-export const LabelId = GmailId;
+export const LabelId = LegacyGmailId;
 export const LabelName = z.string().min(1).max(225);
 export const LabelListVisibility = z.enum(["LABEL_SHOW", "LABEL_SHOW_IF_UNREAD", "LABEL_HIDE"]);
 export const MessageListVisibility = z.enum(["SHOW", "HIDE"]);
 export const LabelOption = z.enum(["TRASH", "SPAM"]);
 export const HexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/);
 
-export const MessageTargetInput = z.object({ account: AccountAlias, message_id: GmailId });
-export const ThreadTargetInput = z.object({ account: AccountAlias, thread_id: GmailId });
+export const MessageTargetInput = z.object({ account: AccountAlias, message_id: LegacyGmailId });
+export const ThreadTargetInput = z.object({ account: AccountAlias, thread_id: LegacyGmailId });
 const LabelIds = z.array(LabelId).min(1).max(100);
 export const LabelMessageInput = MessageTargetInput.extend({ label_ids: LabelIds });
 export const UnlabelMessageInput = LabelMessageInput;
@@ -113,38 +121,46 @@ const FormatArg = z.union([MessageFormat, z.literal("MESSAGE_FORMAT_UNSPECIFIED"
 const PageLimit = z.number().int().min(1).max(50).default(20);
 const PageToken = z.string().min(1).max(512).optional();
 const BodyCharLimit = z.number().int().min(1).max(200_000).default(20_000);
+export const SearchMessagesInput = z.object({
+  account: AccountAlias.optional(),
+  query: z.string().min(1).max(2048),
+  folder: ZohoFolderName.optional(),
+  start: z.number().int().min(1).default(1),
+  limit: z.number().int().min(1).max(200).default(20),
+  include_to: z.boolean().default(false),
+});
+export const ListFoldersInput = z.object({ account: AccountAlias.optional() });
+/** page_token is Zoho's 1-based `start`, as a string. */
 export const SearchThreadsInput = z.object({
   account: AccountAlias.optional(),
   query: z.string().max(2048).optional(),
   limit: PageLimit,
   page_token: PageToken,
-  include_spam_trash: z.boolean().default(false),
 });
 export const GetThreadInput = z.object({
   account: AccountAlias.optional(),
-  thread_id: GmailId,
+  thread_id: LegacyGmailId,
   message_format: FormatArg,
-  max_messages: z.number().int().min(1).max(100).default(25),
+  max_messages: z.number().int().min(1).max(200).default(25),
   include_body: z.boolean().default(true),
   body_char_limit: BodyCharLimit,
   total_body_char_limit: z.number().int().min(1).max(2_000_000).default(200_000),
 });
 export const GetMessageInput = z.object({
   account: AccountAlias.optional(),
-  message_id: GmailId,
+  message_id: LegacyGmailId,
   message_format: FormatArg,
   include_body: z.boolean().default(true),
   body_char_limit: BodyCharLimit,
 });
 export const ListDraftsInput = z.object({
   account: AccountAlias.optional(),
-  query: z.string().max(2048).optional(),
   limit: PageLimit,
   page_token: PageToken,
 });
 export const GetDraftInput = z.object({
   account: AccountAlias.optional(),
-  draft_id: GmailId,
+  draft_id: LegacyGmailId,
   message_format: FormatArg,
   body_char_limit: BodyCharLimit,
 });
@@ -153,7 +169,7 @@ const oneSource = (v: { attachment_id?: string | undefined; part_id?: string | u
   (v.attachment_id === undefined) !== (v.part_id === undefined);
 const ONE_SOURCE = { message: "give attachment_id or part_id, not both" };
 const DownloadAttachmentFields = {
-  message_id: GmailId,
+  message_id: LegacyGmailId,
   attachment_id: z.string().min(1).max(1024).optional(),
   part_id: z.string().min(1).max(64).optional(),
 };
@@ -181,11 +197,11 @@ const ComposeFields = {
 export const CreateDraftInput = z.object({
   account: AccountAlias,
   ...ComposeFields,
-  reply_to_message_id: GmailId.optional(),
+  reply_to_message_id: LegacyGmailId.optional(),
 });
 export const UpdateDraftInput = z.object({
   account: AccountAlias,
-  draft_id: GmailId,
+  draft_id: LegacyGmailId,
   ...ComposeFields,
   to: z.array(Recipient).max(2000).optional(),
   cc: z.array(Recipient).max(2000).optional(),
@@ -197,7 +213,7 @@ export const IdempotencyKey = z.string().min(1).max(128);
  * Gmail re-issues attachmentId on every fetch, so an id a caller read a moment ago cannot be
  * resolved later, and this reference has to survive from the tool call through an approval.
  */
-export const CarriedAttachmentRef = z.strictObject({ message_id: GmailId, part_id: z.string().min(1).max(64) });
+export const CarriedAttachmentRef = z.strictObject({ message_id: LegacyGmailId, part_id: z.string().min(1).max(64) });
 export const CarryFrom = z.array(CarriedAttachmentRef).max(20).default([]);
 
 export const SendMessageInput = z.object({
@@ -209,7 +225,7 @@ export const SendMessageInput = z.object({
 export const ReplyInput = z
   .object({
     account: AccountAlias,
-    message_id: GmailId,
+    message_id: LegacyGmailId,
     reply_all: z.boolean().default(false),
     ...ComposeFields,
     attach_from_message: CarryFrom,
@@ -219,7 +235,7 @@ export const ReplyInput = z
 export const ForwardInput = z
   .object({
     account: AccountAlias,
-    message_id: GmailId,
+    message_id: LegacyGmailId,
     forward_text: z.string().max(600_000).optional(),
     include_original_attachments: z.boolean().default(false),
     ...ComposeFields,
@@ -228,6 +244,6 @@ export const ForwardInput = z
   .omit({ subject: true, body: true });
 export const SendDraftInput = z.object({
   account: AccountAlias,
-  draft_id: GmailId,
+  draft_id: LegacyGmailId,
   idempotency_key: IdempotencyKey.optional(),
 });

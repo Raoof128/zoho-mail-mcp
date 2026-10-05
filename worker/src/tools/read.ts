@@ -70,7 +70,7 @@ export function registerReadTools(server: McpServer, toolContext: (ctx: ServerCo
       }>(e, d, acct(run), {
         method: "GET",
         path: "threads",
-        query: { q: p.query, maxResults: p.limit, pageToken: p.page_token, includeSpamTrash: p.include_spam_trash },
+        query: { q: p.query, maxResults: p.limit, pageToken: p.page_token, includeSpamTrash: false },
         retry: "safe",
       });
       return {
@@ -158,7 +158,7 @@ export function registerReadTools(server: McpServer, toolContext: (ctx: ServerCo
       }>(e, d, acct(run), {
         method: "GET",
         path: "drafts",
-        query: { q: p.query, maxResults: p.limit, pageToken: p.page_token },
+        query: { maxResults: p.limit, pageToken: p.page_token },
         retry: "safe",
       });
       return {
