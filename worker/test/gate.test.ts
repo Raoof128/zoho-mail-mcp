@@ -7,7 +7,8 @@ import { testDeps, testEnv } from "./test-env";
 import { approvePending, denyPending, getPending } from "../src/approval/pending";
 import { setPolicy } from "../src/policy/engine";
 import { beginOperation } from "../src/operations/journal";
-import { ZohoApiError } from "../src/zoho/client";
+import { ZohoApiError, markNotSent } from "../src/zoho/client";
+import { McpError } from "@zoho-mail-mcp/shared/errors";
 import {
   executePending,
   registerExecutor,
@@ -123,6 +124,7 @@ beforeAll(async () => {
     if (r.operationId) await beginOperation(env.DB, r.operationId, { rfc822_message_id: "<x@test>" });
     if (r.payload.fail === "after_open") throw new Error("boom after open");
     if (r.payload.fail === "gmail_4xx") throw new ZohoApiError(400, "INVALID_PARAMETER", "Invalid To header");
+    if (r.payload.fail === "not_sent") throw markNotSent(new McpError("rate_limited", "rate_limited: account bucket"));
     return { provider_result_id: "gm1", echoed: r.payload.to };
   });
   registerExecutor("test_read", 1, (_env, _deps, r) => Promise.resolve({ read: r.payload.q }));
@@ -259,6 +261,16 @@ describe("allow", () => {
           .first<any>()
       ).reserved_by_operation_id,
     ).toBeNull();
+    // M3 review I6: a refusal before any request reached the provider is failed_safe even after the operation opened.
+    const rn = parse(await run(ctx(), await input({ args: { to: ["x@example.test"], fail: "not_sent" } })));
+    expect(rn).toMatchObject({ error: "rate_limited" });
+    expect(
+      (
+        await env.DB.prepare(
+          "SELECT state FROM operations WHERE user_id='tg' ORDER BY created_at DESC LIMIT 1",
+        ).first<any>()
+      ).state,
+    ).toBe("failed_safe");
     const r3 = parse(
       await run(ctx(), await input({ handles: [H("h2")], args: { to: ["x@example.test"], fail: "after_open" } })),
     );

@@ -2,12 +2,12 @@ import { describe, it, expect } from "vitest";
 import { zohoFixture } from "./zoho-mail.test";
 import { approvePending, callTool } from "./zoho-helpers";
 import { insertOperation } from "./fixtures";
+import { wasNotSent, zohoFetch } from "../src/zoho/client";
 import { setPolicy } from "../src/policy/engine";
 import { probeDeliveries } from "../src/operations/probe";
 import { hashCanonical } from "../src/crypto/canonical";
 import { bodyDigestText } from "../src/operations/zoho-send";
 import { accountStub } from "../src/zoho/account-do";
-import { zohoJson } from "../src/zoho/client";
 
 // Final review of M3 (2026-10-05), Important findings 1 to 8. Each test failed before its fix.
 describe("I1: what policy checked is what is sent", () => {
@@ -157,22 +157,16 @@ describe("I5: a failure after a successful draft save is reported as success wit
 });
 
 describe("I6: a refusal before the request is opened is failed_safe, not delivery_unknown", () => {
-  it("the account bucket refusing the send", async () => {
-    const { e, d, acct, accountId } = await zohoFixture();
-    for (let i = 0; i < 25; i++)
-      await zohoJson(e, d, { ...acct, toolCallId: `fill${i}` }, { method: "GET", path: "folders", retry: "safe" });
-    await expect(
-      callTool(e, d, "u", "send_message", {
-        account: "sarabi",
-        to: ["rcp@example.test"],
-        subject: "bucket",
-        body: "b",
-      }),
-    ).rejects.toMatchObject({ code: "rate_limited" });
-    const row = await e.DB.prepare("SELECT state FROM operations WHERE account_id = ? ORDER BY created_at DESC LIMIT 1")
-      .bind(accountId)
-      .first<{ state: string }>();
-    expect(row!.state).toBe("failed_safe");
+  it("the client tags a first-attempt refusal (drained bucket) as not sent; the gate case is in gate.test", async () => {
+    // Deterministic: the bucket is drained through the account object itself, then the very next call is refused.
+    const { e, d, acct } = await zohoFixture();
+    const stub = accountStub(e, acct.accountId);
+    for (let i = 0; i < 100 && (await stub.admit(`drain${i}`)).ok; i++);
+    const err = await zohoFetch(e, d, acct, { method: "POST", path: "messages", json: {}, retry: "none" }).catch(
+      (x: unknown) => x,
+    );
+    expect(err).toMatchObject({ code: "rate_limited" });
+    expect(wasNotSent(err)).toBe(true);
   });
 });
 
