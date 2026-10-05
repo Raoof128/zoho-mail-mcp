@@ -17,8 +17,7 @@ it("refuses a restored old generation and a frozen current marker", async () => 
 it("maintenance refuses OAuth and MCP mutation ingress without contacting providers", async () => {
   let calls = 0;
   const worker = createWorker({
-    zohoFetch: () => Promise.resolve(new Response()),
-    googleFetch: () => {
+    zohoFetch: () => {
       calls++;
       return Promise.reject(new Error("must not call"));
     },

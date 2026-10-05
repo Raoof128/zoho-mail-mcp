@@ -2,15 +2,15 @@ import { env, createExecutionContext, waitOnExecutionContext } from "cloudflare:
 import { describe, it, expect, beforeAll } from "vitest";
 import { createWorker } from "../src/index";
 import { Browser } from "./browser";
-import { FakeGoogle } from "./fake-google";
+import { FakeZoho } from "./fake-zoho";
 import { testEnv, testDeps } from "./test-env";
 import { seedUserAndAccount } from "./fixtures";
 import { auditIntent } from "../src/audit/log";
 
-let g: FakeGoogle;
+let g: FakeZoho;
 let worker: ReturnType<typeof createWorker>;
 beforeAll(async () => {
-  g = await FakeGoogle.create();
+  g = await FakeZoho.create();
   worker = createWorker(testDeps(g));
   await seedUserAndAccount(env.DB, { userId: "owner-sub", accountId: "au1", alias: "personal", isDefault: true });
   await seedUserAndAccount(env.DB, { userId: "owner-sub", accountId: "au2", alias: "work" });

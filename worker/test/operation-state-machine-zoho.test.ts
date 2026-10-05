@@ -43,7 +43,7 @@ async function rig() {
   });
   z.accounts.set(`sub-${accountId}`, { accountId: Z, primaryEmail: "sarabi@example.test", sendAs: [] });
   await seedAccessToken(e, { userId: U, accountId, access: z.directToken(Z) });
-  const token = (await mintToken(worker, e, z as never, { scope: "mcp" })).accessToken;
+  const token = (await mintToken(worker, e, z, { scope: "mcp" })).accessToken;
   return {
     e,
     z,

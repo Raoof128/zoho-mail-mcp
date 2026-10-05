@@ -1,13 +1,13 @@
 import { env } from "cloudflare:test";
 import { describe, it, expect, beforeAll } from "vitest";
 import { PendingApprovalResult } from "@zoho-mail-mcp/shared/schemas";
-import { FakeGoogle } from "./fake-google";
+import { FakeZoho } from "./fake-zoho";
 import { seedUserAndAccount, seedAccessToken } from "./fixtures";
 import { testDeps, testEnv } from "./test-env";
 import { approvePending, denyPending, getPending } from "../src/approval/pending";
 import { setPolicy } from "../src/policy/engine";
 import { beginOperation } from "../src/operations/journal";
-import { GmailApiError } from "../src/google/gmail";
+import { ZohoApiError } from "../src/zoho/client";
 import {
   executePending,
   registerExecutor,
@@ -23,7 +23,7 @@ import { hashCanonical, canonicalize } from "../src/crypto/canonical";
 import type { Principal } from "../src/auth/principal";
 
 const e = testEnv();
-let g: FakeGoogle;
+let g: FakeZoho;
 const principal: Principal = { userId: "tg", email: "tg@example.test", scope: "mcp" };
 const calls: unknown[] = [];
 const staged: string[] = [];
@@ -113,7 +113,7 @@ const opRow = (id: string) =>
     .first<any>();
 
 beforeAll(async () => {
-  g = await FakeGoogle.create();
+  g = await FakeZoho.create();
   await seedUserAndAccount(env.DB, { userId: "tg", accountId: "ta", alias: "main", isDefault: true });
   await seedUserAndAccount(env.DB, { userId: "tg2", accountId: "tb", alias: "main", isDefault: true });
   await seedAccessToken(e, { userId: "tg", accountId: "ta" });
@@ -122,7 +122,7 @@ beforeAll(async () => {
     if (r.payload.fail === "before_open") throw new Error("boom before open");
     if (r.operationId) await beginOperation(env.DB, r.operationId, { rfc822_message_id: "<x@test>" });
     if (r.payload.fail === "after_open") throw new Error("boom after open");
-    if (r.payload.fail === "gmail_4xx") throw new GmailApiError(400, "Invalid To header", null);
+    if (r.payload.fail === "gmail_4xx") throw new ZohoApiError(400, "INVALID_PARAMETER", "Invalid To header");
     return { provider_result_id: "gm1", echoed: r.payload.to };
   });
   registerExecutor("test_read", 1, (_env, _deps, r) => Promise.resolve({ read: r.payload.q }));

@@ -2,7 +2,7 @@ import { env } from "cloudflare:test";
 import { describe, it, expect, beforeEach } from "vitest";
 import { createWorker } from "../src/index";
 import { Browser, csrfFrom } from "./browser";
-import { FakeGoogle } from "./fake-google";
+import { FakeZoho } from "./fake-zoho";
 import { testEnv, testDeps } from "./test-env";
 import { seedUserAndAccount } from "./fixtures";
 import { registerCompanionClient } from "../src/auth/companion";
@@ -66,7 +66,7 @@ describe("dynamic client registration is closed unless the owner opens it", () =
 
 describe("only the owner can open the window", () => {
   it("opens from the accounts page and refuses an anonymous post", async () => {
-    const g = await FakeGoogle.create();
+    const g = await FakeZoho.create();
     const w = createWorker(testDeps(g));
     await seedUserAndAccount(env.DB, { userId: "owner-sub", accountId: "rw1", alias: "personal", isDefault: true });
 

@@ -44,10 +44,10 @@ beforeAll(async () => {
   });
   z.accounts.set("sub-ea", { accountId: Z, primaryEmail: "sarabi@example.test", sendAs: [] });
   await seedAccessToken(e, { userId: "owner-sub", accountId: "ea", access: z.directToken(Z) });
-  const minted = await mintToken(worker, e, z as never, { scope: "mcp" });
+  const minted = await mintToken(worker, e, z, { scope: "mcp" });
   token = minted.accessToken;
   browser = minted.browser;
-  otherToken = (await mintToken(worker, e, z as never, { scope: "mcp", sub: "other-sub", email: "other@example.test" }))
+  otherToken = (await mintToken(worker, e, z, { scope: "mcp", sub: "other-sub", email: "other@example.test" }))
     .accessToken;
 });
 

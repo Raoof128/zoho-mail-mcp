@@ -51,16 +51,6 @@ export type MessageFormat = z.infer<typeof MessageFormat>;
 /** Zoho message, thread, folder, label and account ids are decimal digits. */
 export const ZohoId = z.string().regex(/^\d{1,32}$/);
 export const ZohoFolderName = z.string().min(1).max(255);
-/**
- * Interim: the id shape of tools still backed by the Gmail API. Every Zoho id also matches it. Each schema moves to
- * ZohoId when its tool is rewritten (M2 Task 2.4 read inputs, M3 compose and send, M4 labels and organise); M4 Task 4.2
- * deletes this.
- */
-export const LegacyGmailId = z
-  .string()
-  .min(1)
-  .max(256)
-  .regex(/^[A-Za-z0-9_-]+$/);
 export const LabelId = ZohoId;
 export const LabelName = z.string().min(1).max(225);
 export const LabelOption = z.enum(["TRASH", "SPAM"]);
@@ -169,7 +159,7 @@ const oneSource = (v: { attachment_id?: string | undefined; part_id?: string | u
   (v.attachment_id === undefined) !== (v.part_id === undefined);
 const ONE_SOURCE = { message: "give attachment_id or part_id, not both" };
 const DownloadAttachmentFields = {
-  message_id: LegacyGmailId,
+  message_id: ZohoId,
   attachment_id: z.string().min(1).max(1024).optional(),
   part_id: z.string().min(1).max(64).optional(),
 };

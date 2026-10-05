@@ -25,7 +25,7 @@ describe("inline attachments through an elicited approval (Zoho)", () => {
     });
     z.accounts.set("sub-eaz", { accountId: "1950001", primaryEmail: "sarabi@example.test", sendAs: [] });
     await seedAccessToken(e, { userId: "owner-sub", accountId: "eaz", access: z.directToken("1950001") });
-    const token = (await mintToken(worker, e, z as never, { scope: "mcp" })).accessToken;
+    const token = (await mintToken(worker, e, z, { scope: "mcp" })).accessToken;
     const args = {
       account: "sarabi",
       to: ["someone@else.test"],

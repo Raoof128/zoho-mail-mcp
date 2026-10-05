@@ -1,7 +1,7 @@
 import { env, applyD1Migrations } from "cloudflare:test";
 import { beforeAll } from "vitest";
 
-// No test reaches a real provider. Every outbound call goes through a fake injected as zohoFetch or googleFetch;
+// No test reaches a real provider. Every outbound call goes through a fake injected as zohoFetch;
 // anything that falls through to the global fetch is a test bug, refused loudly rather than sent to Zoho or
 // Google (M1 Task 1.6: two recovery tests were found sending a refresh to the real accounts.zoho.com.au).
 globalThis.fetch = (input: RequestInfo | URL): Promise<Response> => {

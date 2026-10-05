@@ -39,7 +39,7 @@ export async function mcpTokenFor(
   const key = `${scope}:${user}`;
   const cached = tokens.get(key);
   if (cached) return cached;
-  const t = await mintToken(worker, env, z as never, { scope, sub: user, email: `${user}@example.test` });
+  const t = await mintToken(worker, env, z, { scope, sub: user, email: `${user}@example.test` });
   tokens.set(key, t.accessToken);
   return t.accessToken;
 }

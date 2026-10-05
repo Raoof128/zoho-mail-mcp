@@ -4,14 +4,14 @@ import { Companion } from "../../companion/src/transfers.ts";
 import { Authority } from "../../companion/src/http.ts";
 import type { NativePort } from "../../companion/src/protocol.ts";
 import { createWorker } from "../src/index";
-import { FakeGoogle } from "./fake-google";
+import { FakeZoho } from "./fake-zoho";
 import { Browser, mintToken } from "./browser";
 import { testEnv, testDeps, HOST } from "./test-env";
 import { registerCompanionClient } from "../src/auth/companion";
 import { seedUserAndAccount } from "./fixtures";
 import { setPolicy } from "../src/policy/engine";
 it("runs companion orchestration through real Worker OAuth and staging publication", async () => {
-  const google = await FakeGoogle.create(),
+  const google = await FakeZoho.create(),
     worker = createWorker(testDeps(google)),
     e = testEnv();
   await seedUserAndAccount(env.DB, { userId: "owner-sub", accountId: "roundtrip-account", alias: "work" });

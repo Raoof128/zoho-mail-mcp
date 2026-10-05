@@ -1,5 +1,4 @@
 import { defaultDeps, type Deps } from "../src/deps";
-import type { FakeGoogle } from "./fake-google";
 import type { FakeZoho } from "./fake-zoho";
 import { env } from "cloudflare:test";
 import type { Env } from "../src/env";
@@ -38,11 +37,10 @@ export function testEnv(overrides: Record<string, unknown> = {}): Env {
 export const HOST = "https://zoho-mail-mcp.example.workers.dev";
 
 /** Fake Google, no real sleeping, and an approval wait long enough for a browser approval to land inside it. */
-/** Either fake while the Google tests remain (M1 Task 1.6 and M4 Task 4.2 retire FakeGoogle). */
-export function testDeps(g: FakeGoogle | FakeZoho, overrides: Partial<Deps> = {}): Deps {
+/** Either fake while the Google tests remain (M1 Task 1.6 and M4 Task 4.2 retire FakeZoho). */
+export function testDeps(g: FakeZoho, overrides: Partial<Deps> = {}): Deps {
   return {
     ...defaultDeps,
-    googleFetch: g.fetch,
     zohoFetch: g.fetch,
     __zoho: g,
     // A resolved promise is a microtask, and a loop of those starves the timer queue, so an approval

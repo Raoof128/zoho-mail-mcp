@@ -1,6 +1,5 @@
 import { SignJWT, exportJWK, generateKeyPair, type CryptoKey } from "jose";
 import { FakeZohoMail } from "./fake-zoho-mail";
-import { FakeGmail } from "./fake-gmail"; // removed with the Gmail tools in M4 Task 4.2
 
 export type ZohoAccountSeed = { accountId: string; primaryEmail: string; sendAs: string[] };
 type CodeRecord = { sub: string; email: string; nonce: string; refresh: string; scope: string };
@@ -25,8 +24,6 @@ export class FakeZoho {
   readonly accounts = new Map<string, ZohoAccountSeed>(); // by sub
   readonly revoked = new Set<string>();
   readonly mail = new FakeZohoMail();
-  /** Gmail API only, so M2 to M4 can move tool tests one family at a time (M1 Task 1.6). */
-  readonly gmail = new FakeGmail();
   tokenCalls = 0;
   /** Live Zoho omits `location` unless multi-DC is enabled on the API client. Default off, as the client's app is. */
   multiDc = false;
@@ -104,7 +101,6 @@ export class FakeZoho {
   readonly fetch: typeof fetch = async (input, init) => {
     const req = new Request(input, init);
     const url = new URL(req.url);
-    if (url.hostname === "gmail.googleapis.com") return this.gmail.fetch(req);
     if (url.href === `${ISSUER}/.well-known/openid-configuration`)
       return Response.json({
         issuer: ISSUER,

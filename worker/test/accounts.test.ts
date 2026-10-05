@@ -2,16 +2,16 @@ import { env } from "cloudflare:test";
 import { describe, it, expect, beforeAll } from "vitest";
 import { createWorker } from "../src/index";
 import { Browser, csrfFrom } from "./browser";
-import { FakeGoogle } from "./fake-google";
+import { FakeZoho } from "./fake-zoho";
 import { testEnv, testDeps } from "./test-env";
 import { seedUserAndAccount } from "./fixtures";
 import { Keyring } from "../src/crypto/keyring";
 import { SESSION_COOKIE } from "../src/web/session";
 
-let g: FakeGoogle;
+let g: FakeZoho;
 let worker: ReturnType<typeof createWorker>;
 beforeAll(async () => {
-  g = await FakeGoogle.create();
+  g = await FakeZoho.create();
   worker = createWorker(testDeps(g));
   await seedUserAndAccount(env.DB, { userId: "owner-sub", accountId: "ac1", alias: "personal", isDefault: true });
   await seedUserAndAccount(env.DB, { userId: "owner-sub", accountId: "ac2", alias: "work" });

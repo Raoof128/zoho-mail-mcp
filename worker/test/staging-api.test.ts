@@ -1,14 +1,14 @@
 import { env, createExecutionContext } from "cloudflare:test";
 import { it, expect } from "vitest";
 import { createWorker } from "../src/index";
-import { FakeGoogle } from "./fake-google";
+import { FakeZoho } from "./fake-zoho";
 import { Browser, mintToken } from "./browser";
 import { testEnv, testDeps, HOST } from "./test-env";
 import { registerCompanionClient } from "../src/auth/companion";
 import { seedUserAndAccount } from "./fixtures";
 import { setPolicy } from "../src/policy/engine";
 it("authenticates identity and uploads through the real staging OAuth route", async () => {
-  const g = await FakeGoogle.create();
+  const g = await FakeZoho.create();
   const w = createWorker(testDeps(g));
   const e = testEnv();
   await seedUserAndAccount(env.DB, { userId: "owner-sub", accountId: "api-account", alias: "work" });

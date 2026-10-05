@@ -3,17 +3,17 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { createWorker } from "../src/index";
 import { seedUserAndAccount } from "./fixtures";
 import { rpc } from "./mcp-client";
-import { FakeGoogle } from "./fake-google";
+import { FakeZoho } from "./fake-zoho";
 import { mintToken } from "./browser";
 import { testEnv, testDeps } from "./test-env";
 
 const INIT = { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "test", version: "0" } };
-let g: FakeGoogle;
+let g: FakeZoho;
 let worker: ReturnType<typeof createWorker>;
 let token: string;
 
 beforeAll(async () => {
-  g = await FakeGoogle.create();
+  g = await FakeZoho.create();
   worker = createWorker(testDeps(g));
   await seedUserAndAccount(env.DB, { userId: "owner-sub", accountId: "ma", alias: "personal", isDefault: true });
   token = (await mintToken(worker, testEnv(), g, { scope: "mcp" })).accessToken;

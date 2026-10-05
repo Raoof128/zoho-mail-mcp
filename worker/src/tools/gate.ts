@@ -16,7 +16,6 @@ import {
 import { APPROVAL_STATE_VERSION, type ApprovalState } from "../approval/state";
 import { canonicalize, hashCanonical } from "../crypto/canonical";
 import { randomId } from "../crypto/random";
-import { GmailApiError } from "../google/gmail";
 import { ZohoApiError, wasNotSent } from "../zoho/client";
 
 const DEFINITIVE_REFUSALS = new Set([400, 401, 403, 404, 405, 413, 415, 422]);
@@ -436,11 +435,7 @@ export async function runExecutor(t: ToolContext, run: ExecutorRun): Promise<Rec
       state === "claimed" ||
       // Only a definitive refusal after the request opened means nothing was sent. 408, 409, 425, 429 and the like can
       // come from a proxy after the provider acted, so they stay delivery_unknown (security review of ddf6e59).
-      (state === "executing" &&
-        (wasNotSent(e) ||
-          (e instanceof ZohoApiError && DEFINITIVE_REFUSALS.has(e.status)) ||
-          // Gmail-era tools keep Gmail's rule (any 4xx is a refusal) until M4 retires them.
-          (e instanceof GmailApiError && e.status >= 400 && e.status < 500)))
+      (state === "executing" && (wasNotSent(e) || (e instanceof ZohoApiError && DEFINITIVE_REFUSALS.has(e.status))))
     ) {
       await settleFailedSafe(db, { operationId: run.operationId, pendingId: run.pendingId, audit, error: err.code });
       throw err;

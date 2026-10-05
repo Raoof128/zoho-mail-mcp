@@ -2,7 +2,7 @@ import { env } from "cloudflare:test";
 import { describe, it, expect, beforeAll } from "vitest";
 import { createWorker } from "../src/index";
 import { Browser, csrfFrom, mintToken, registerClient } from "./browser";
-import { FakeGoogle } from "./fake-google";
+import { FakeZoho } from "./fake-zoho";
 import { rpc } from "./mcp-client";
 import { HOST, testEnv, testDeps } from "./test-env";
 import { registerCompanionClient } from "../src/auth/companion";
@@ -10,10 +10,10 @@ import { requireScope } from "../src/auth/principal";
 import { seedUserAndAccount } from "./fixtures";
 
 const INIT = { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "t", version: "0" } };
-let g: FakeGoogle;
+let g: FakeZoho;
 let worker: ReturnType<typeof createWorker>;
 beforeAll(async () => {
-  g = await FakeGoogle.create();
+  g = await FakeZoho.create();
   worker = createWorker(testDeps(g));
   await seedUserAndAccount(env.DB, { userId: "owner-sub", accountId: "oa", alias: "personal", isDefault: true });
 });
