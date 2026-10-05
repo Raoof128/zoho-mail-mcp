@@ -1,11 +1,28 @@
 #!/usr/bin/env node
 import { parseArgs } from "node:util";
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
-import { resolve } from "node:path";
+import { join, resolve } from "node:path";
 import { serveStdio } from "@modelcontextprotocol/server/stdio";
 import { NativeProcess } from "./native.ts";
 import { login, logout } from "./auth.ts";
 import { buildCompanionServer } from "./server.ts";
+import { installAgent } from "./launchd.ts";
+import { Paths } from "./native/config.ts";
+
+const USAGE =
+  "Usage: zoho-mail-mcp-companion init --server https://HOST --client-id ID [--write-root PATH] [--read-root ID=PATH] | login | logout | serve | recover | install-agent | debt [--scope SCOPE --release HANDLE]\n";
+/** What a refusal means, in one plain line for the owner. Codes not listed print as they are. */
+const PLAIN: Record<string, string> = {
+  configuration_exists: "The companion is already set up on this Mac.",
+  run_init: "The companion is not set up yet. Run the install line again.",
+  login_required: "The companion is not signed in. Run: companion login",
+  lock_busy: "Another companion task is still running. Try again in a minute.",
+  root_overlap: "Two of the folders the companion uses sit inside each other.",
+  private_overlap: "A shared folder sits inside the companion's private folder.",
+  unsupported_volume: "A folder is on a drive the companion cannot use safely (it must be this Mac's own disk).",
+};
 type DebtRow = {
   scope: string;
   handle: string;
@@ -40,20 +57,31 @@ async function main() {
     const { values } = parseArgs({
       args: process.argv.slice(3),
       options: {
+        server: { type: "string" },
         origin: { type: "string" },
         "client-id": { type: "string" },
         "read-root": { type: "string", multiple: true },
         "write-root": { type: "string" },
       },
     });
-    if (!values.origin || !values["client-id"]) throw new Error("usage");
+    const origin = values.server ?? values.origin;
+    if (!origin || !values["client-id"]) throw new Error("usage");
+    const home = homedir();
+    // Siblings, never nested: the native port refuses roots inside one another. The outbox is the
+    // one root the Worker stages from without asking (M5), so files to send go in "To Send".
+    const received = resolve(values["write-root"] ?? join(home, "Downloads", "Mail", "Received"));
+    const outbox = join(home, "Downloads", "Mail", "To Send");
+    mkdirSync(received, { recursive: true, mode: 0o700 });
+    mkdirSync(outbox, { recursive: true, mode: 0o700 });
     const roots: Record<string, { path: string; read: boolean; write: boolean }> = {
-      attachments: {
-        path: resolve(values["write-root"] ?? homedir() + "/Downloads/Mail"),
-        read: false,
-        write: true,
-      },
+      attachments: { path: received, read: false, write: true },
+      outbox: { path: outbox, read: true, write: false },
     };
+    for (const [id, dir] of [
+      ["desktop", join(home, "Desktop")],
+      ["documents", join(home, "Documents")],
+    ] as const)
+      if (existsSync(dir)) roots[id] = { path: dir, read: true, write: false };
     for (const item of values["read-root"] ?? []) {
       const split = item.indexOf("=");
       if (split < 1) throw new Error("usage");
@@ -63,11 +91,34 @@ async function main() {
     }
     const native = new NativeProcess({ initialize: true });
     try {
-      await native.call({ origin: values.origin, client_id: values["client-id"], roots });
+      await native.call({ origin, client_id: values["client-id"], roots });
     } finally {
       native.close();
     }
-    process.stderr.write("Companion configuration created. Run login, then serve.\n");
+    process.stdout.write(`Companion set up. Put files to send in: ${outbox}\n`);
+    return;
+  }
+  if (command === "recover") {
+    // Opening the native port runs startup recovery: expired snapshots, interrupted saves, retention.
+    const native = new NativeProcess();
+    try {
+      await native.call({ op: "roots" });
+    } finally {
+      native.close();
+    }
+    process.stdout.write(`${new Date().toISOString()} companion recovery done\n`);
+    return;
+  }
+  if (command === "install-agent") {
+    const plist = installAgent({
+      home: homedir(),
+      uid: process.getuid!(),
+      program: join(Paths.stateDir, "bin", "companion"),
+      run: (argv) => {
+        execFileSync(argv[0]!, argv.slice(1), { stdio: "ignore", env: { PATH: "/usr/bin:/bin" } });
+      },
+    });
+    process.stdout.write(`Login agent installed: ${plist}\n`);
     return;
   }
   if (command === "debt") {
@@ -126,9 +177,10 @@ async function main() {
   }
   throw new Error("usage");
 }
-main().catch(() => {
-  process.stderr.write(
-    "Companion command failed. Check configuration, permissions, login and the native build.\nUsage: zoho-mail-mcp-companion init --origin https://HOST --client-id ID [--read-root ID=PATH] [--write-root PATH] | login | logout | serve | debt [--scope SCOPE --release HANDLE]\n",
-  );
+main().catch((error: unknown) => {
+  const code = error instanceof Error && /^[a-z_]+$/.test(error.message) ? error.message : undefined;
+  if (code && code !== "usage") process.stderr.write(`${PLAIN[code] ?? "The companion refused."} (${code})\n`);
+  else if (!code) process.stderr.write("Companion command failed. Check configuration, permissions and login.\n");
+  process.stderr.write(USAGE);
   process.exitCode = 1;
 });

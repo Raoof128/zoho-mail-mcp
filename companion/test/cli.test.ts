@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { it, expect } from "vitest";
@@ -98,4 +98,33 @@ it("debt lists charged debt and refuses a handle that is not there", () => {
   expect(noScope.stdout).toBe("");
   expect(noScope.stderr).toContain("Usage: zoho-mail-mcp-companion");
   expect(noScope.status).toBe(1);
+});
+
+it("init creates the Received and To Send folders and configures the default roots that exist", () => {
+  const cli = new URL("../src/cli.ts", import.meta.url).pathname;
+  const home = mkdtempSync(join(tmpdir(), "zmi-"));
+  mkdirSync(join(home, "Documents"));
+  const env = { ...process.env, HOME: home };
+  const init = spawnSync(
+    process.execPath,
+    [cli, "init", "--server", "https://mail-mcp.example.test", "--client-id", "cid"],
+    { encoding: "utf8", timeout: 60_000, env },
+  );
+  expect(init.status, init.stderr).toBe(0);
+  expect(init.stdout).not.toMatch(/—/);
+  const config = JSON.parse(readFileSync(join(home, ".config", "zoho-mail-mcp", "config.json"), "utf8")) as {
+    roots: Record<string, { path: string; read: boolean; write: boolean }>;
+  };
+  expect(Object.keys(config.roots).sort()).toEqual(["attachments", "documents", "outbox"]);
+  expect(config.roots.outbox).toMatchObject({ read: true, write: false });
+  expect(config.roots.outbox!.path.endsWith(join("Downloads", "Mail", "To Send"))).toBe(true);
+  expect(config.roots.attachments).toMatchObject({ read: false, write: true });
+  expect(config.roots.attachments!.path.endsWith(join("Downloads", "Mail", "Received"))).toBe(true);
+  const again = spawnSync(
+    process.execPath,
+    [cli, "init", "--server", "https://mail-mcp.example.test", "--client-id", "cid"],
+    { encoding: "utf8", timeout: 60_000, env },
+  );
+  expect(again.status).toBe(1);
+  expect(again.stdout + again.stderr).toContain("configuration_exists");
 });
