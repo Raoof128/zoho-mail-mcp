@@ -20,7 +20,7 @@ import {
   validateCompose,
   type ComposePayload,
   type DecodedInline,
-} from "./compose";
+} from "./compose-gmail";
 import type { ExecRun, ToolContext } from "./gate";
 
 type DraftPayload = ComposePayload & {

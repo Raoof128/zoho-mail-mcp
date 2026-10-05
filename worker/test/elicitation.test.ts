@@ -132,35 +132,7 @@ describe("modern era with elicitation.url", () => {
       "pending_replayed",
     );
   });
-  it("an inline attachment survives the round trip: the accepted retry hashes to the same intent and stages nothing twice", async () => {
-    const args = {
-      account: "personal",
-      to: ["someone@else.test"],
-      subject: "inline",
-      body: "b",
-      inline_attachments: [{ filename: "i.txt", mime: "text/plain", content_base64: btoa("inline") }],
-    };
-    const staged = async () =>
-      (await env.DB.prepare("SELECT count(*) AS n FROM staging_objects").first<any>()).n as number;
-    const before = await staged();
-    const first = await modernCall(worker, e, token, "send_message", args, { capabilities: URL_CAPS });
-    expect(first.inputRequired).toMatchObject({ resultType: "input_required" });
-    expect(await staged()).toBe(before + 1);
-    const id = first.inputRequired.inputRequests.approval.params.url.split("/approve/")[1];
-    await env.DB.prepare(
-      "UPDATE pending_actions SET state = 'approved', approved_at = ?, approved_via = 'browser' WHERE id = ?",
-    )
-      .bind(Date.now(), id)
-      .run();
-    const retry = await modernCall(worker, e, token, "send_message", args, {
-      capabilities: URL_CAPS,
-      inputResponses: { approval: { action: "accept" } },
-      requestState: first.inputRequired.requestState,
-    });
-    expect(retry.result).toMatchObject({ status: "executed", action_id: id });
-    expect(await staged()).toBe(before + 1);
-    expect(new TextDecoder().decode(gm().sent.at(-1)!.raw)).toContain('filename="i.txt"');
-  });
+  // The inline round-trip case moved to elicitation-zoho.test.ts (M3 Task 3.3).
 });
 
 describe("adversarial (spec 4.7)", () => {

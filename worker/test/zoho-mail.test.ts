@@ -17,16 +17,21 @@ export async function zohoFixture() {
   await e.DB.prepare(
     "UPDATE accounts SET alias = 'old-' || id, status = 'revoked', is_default = 0 WHERE user_id = 'u' AND alias = 'sarabi'",
   ).run();
+  // Like the client's mailbox: info@ owns the Sarabi address with RCP as a send-as alias.
   await seedUserAndAccount(e.DB, {
     userId: "u",
     accountId: id,
     alias: "sarabi",
     isDefault: true,
     slot: "sarabi",
-    sendAs: ["sarabi@example.test"],
+    sendAs: ["sarabi@example.test", "rcp@example.test"],
     zohoAccountId: Z,
   });
-  z.accounts.set(`sub-${id}`, { accountId: Z, primaryEmail: "sarabi@example.test", sendAs: ["sarabi@example.test"] });
+  z.accounts.set(`sub-${id}`, {
+    accountId: Z,
+    primaryEmail: "sarabi@example.test",
+    sendAs: ["sarabi@example.test", "rcp@example.test"],
+  });
   await seedAccessToken(e, { userId: "u", accountId: id, access: z.directToken(Z) });
   return { z, e, d: testDeps(z), acct: { userId: "u", accountId: id, toolCallId: "t" }, Z, accountId: id };
 }

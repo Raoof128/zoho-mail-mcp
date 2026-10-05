@@ -51,23 +51,7 @@ function watchFirstMutation(): { seen: { id: string; state: string }[][] } {
 }
 
 describe("claimed means no external mutation could have happened", () => {
-  it("a journaled send is executing, never claimed, when Gmail first sees a mutating request", async () => {
-    await setPolicy(env.DB, { userId: U, accountId: "osm", action: "send.message", level: "allow" });
-    const w = watchFirstMutation();
-    const r = await call("send_message", {
-      account: "personal",
-      to: ["personal@example.test"],
-      subject: "state machine",
-      body: "b",
-    });
-    expect(r.result).toMatchObject({ status: "executed" });
-    expect(w.seen.length).toBeGreaterThan(0);
-    for (const snapshot of w.seen) {
-      for (const row of snapshot) expect(row.state).not.toBe("claimed");
-    }
-    expect(w.seen[0]!.some((r) => r.state === "executing")).toBe(true);
-  });
-
+  // The send_message case moved to operation-state-machine-zoho.test.ts (M3 Task 3.3).
   it("a journaled draft is executing too, because it shares the send pipeline", async () => {
     const w = watchFirstMutation();
     const r = await call("create_draft", {

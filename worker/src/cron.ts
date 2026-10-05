@@ -1,3 +1,4 @@
+import { releaseStatements } from "./staging/reserve";
 import { assertInstallation } from "./operations/installation";
 import { recoverUploads } from "./staging/recovery";
 import type { Env } from "./env";
@@ -34,11 +35,7 @@ export async function recoverClaimed(db: D1Database, operationId: string, now: n
           `INSERT INTO _assert (x) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM operations WHERE id = ? AND state = 'failed_safe')`,
         )
         .bind(operationId),
-      db
-        .prepare(
-          `UPDATE staging_objects SET reserved_by_operation_id = NULL WHERE reserved_by_operation_id = ? AND consumed_at IS NULL`,
-        )
-        .bind(operationId),
+      ...releaseStatements(db, operationId),
       db
         .prepare(
           `UPDATE pending_actions SET state = 'failed', payload_json = NULL, summary = 'redacted', error = 'failed_safe' WHERE operation_id = ? AND state = 'executing'`,

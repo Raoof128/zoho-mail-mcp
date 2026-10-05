@@ -19,10 +19,11 @@ import { randomId } from "../crypto/random";
 import { operationFor, recordFailure, settleDirect, sendResult } from "../operations/recovery-state";
 import type { SendRecoveryContext } from "../operations/send";
 import { GmailApiError } from "../google/gmail";
+import { ZohoApiError } from "../zoho/client";
 import { insertOperationStatement } from "../operations/journal";
 import { decide } from "../policy/engine";
 import { LIMITS } from "../policy/limits";
-import { extendExpiryStatement, reserveStatements } from "../staging/store";
+import { extendExpiryStatements, reserveStatements } from "../staging/reserve";
 import { accountById, type AccountRef } from "./accounts";
 import { bindIdempotencyStatements, lookupIdempotency, replayFor } from "./idempotency";
 import { approvalUrl, pendingApprovalResult, text, type ToolResult } from "./results";
@@ -191,14 +192,9 @@ export async function runGated(t: ToolContext, input: GateInput): Promise<ToolRe
       }),
     ];
     // Spec 3.7: a handle staged 29 minutes ago must not expire between approval and execution.
-    const hold = extendExpiryStatement(
-      db,
-      built.handles,
-      userId,
-      input.account.id,
-      now + PENDING_TTL_MS + HOLD_MARGIN_MS,
+    stmts.push(
+      ...extendExpiryStatements(db, built.handles, userId, input.account.id, now + PENDING_TTL_MS + HOLD_MARGIN_MS),
     );
-    if (hold) stmts.push(hold);
     if (input.idempotencyKey)
       stmts.push(
         ...bindIdempotencyStatements(db, {
@@ -472,7 +468,11 @@ export async function runExecutor(t: ToolContext, run: ExecutorRun): Promise<Rec
     if (
       !run.operationId ||
       state === "claimed" ||
-      (state === "executing" && e instanceof GmailApiError && e.status >= 400 && e.status < 500)
+      // A definitive 4xx after the request opened means the provider refused it: nothing was sent.
+      (state === "executing" &&
+        (e instanceof GmailApiError || e instanceof ZohoApiError) &&
+        e.status >= 400 &&
+        e.status < 500)
     ) {
       await settleFailedSafe(db, { operationId: run.operationId, pendingId: run.pendingId, audit, error: err.code });
       throw err;

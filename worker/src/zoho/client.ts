@@ -17,6 +17,12 @@ export type ZohoRequest = {
   headers?: Record<string, string>;
   /** `safe` may be re-sent after a 5xx; `none` is sent once. A 401 retry after a refresh is always safe: Zoho refused before acting. */
   retry: "safe" | "none";
+  /**
+   * An attachment byte transfer (stream or upload) inside forward or attach_from_message. Spec D17 caps those at 10
+   * attachments per call, counted by the caller on the attachments budget; they skip the 10-request counter, or no
+   * call could carry more than a few files. They still pass the account's 25-a-minute bucket.
+   */
+  transfer?: boolean;
 };
 
 export class ZohoApiError extends McpError {
@@ -80,8 +86,8 @@ function url(base: string, path: string, query?: ZohoRequest["query"]): string {
 }
 
 /** One request's worth of the tool call's budget and the account's bucket. Every attempt pays, retries included. */
-async function spend(stub: ReturnType<typeof accountStub>, acct: ZohoAcct): Promise<void> {
-  if (!(await stub.budget(acct.toolCallId, "requests", 1)))
+async function spend(stub: ReturnType<typeof accountStub>, acct: ZohoAcct, transfer = false): Promise<void> {
+  if (!transfer && !(await stub.budget(acct.toolCallId, "requests", 1)))
     throw new McpError("budget_exceeded", "budget_exceeded: more than 10 Zoho requests in one tool call", {
       counter: "requests",
     });
@@ -106,7 +112,7 @@ export async function zohoFetch(env: Env, deps: Deps, acct: ZohoAcct, req: ZohoR
   let refreshed = false;
   let forceNext = false;
   for (let attempt = 1; ; attempt++) {
-    await spend(stub, acct);
+    await spend(stub, acct, req.transfer === true);
     const token = await getAccessToken(env, deps, acct.userId, acct.accountId, { forceRefresh: forceNext });
     forceNext = false;
     const headers = new Headers({ accept: "application/json", ...req.headers });

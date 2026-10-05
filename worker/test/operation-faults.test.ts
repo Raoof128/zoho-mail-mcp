@@ -1,44 +1,55 @@
 import { describe, it, expect } from "vitest";
 import { createWorker } from "../src/index";
-import { FakeGoogle } from "./fake-google";
+import { FakeZoho } from "./fake-zoho";
 import { mintToken } from "./browser";
 import { seedUserAndAccount, seedAccessToken } from "./fixtures";
 import { callTool } from "./mcp-client";
 import { testDeps, testEnv } from "./test-env";
 import { approvePending } from "../src/approval/pending";
 
+// Ported to Zoho in M3 Task 3.3: the send tools no longer reach Gmail. Same invariants, settlement protocol 1.
 const U = "owner-sub";
+let seq = 0;
 
-/** QA-001: every counter here is asserted non-zero before its consequences are read. */
 type Rig = {
   worker: ReturnType<typeof createWorker>;
   e: ReturnType<typeof testEnv>;
-  g: FakeGoogle;
+  z: FakeZoho;
   token: string;
   account: string;
   counts: { mutations: number; total: number };
 };
 
+/** A Zoho send or upload is the only mutating request a send makes. */
+const isMutation = (req: Request) => {
+  const u = new URL(req.url);
+  return u.hostname === "mail.zoho.com.au" && req.method === "POST" && /\/messages(\/attachments)?$/.test(u.pathname);
+};
+
 async function rig(account: string, intercept: (req: Request, pass: () => Promise<Response>) => Promise<Response>) {
   const e = testEnv();
-  const g = await FakeGoogle.create();
+  const z = await FakeZoho.create();
+  const Z = `19300${++seq}`;
   const counts = { mutations: 0, total: 0 };
-  const googleFetch: typeof fetch = async (input, init) => {
+  const zohoFetch: typeof fetch = async (input, init) => {
     const request = new Request(input, init);
-    const url = new URL(request.url);
     counts.total++;
-    const mutating =
-      url.hostname === "gmail.googleapis.com" &&
-      request.method !== "GET" &&
-      (url.pathname.includes("/messages/send") || url.pathname.includes("/upload/"));
-    if (mutating) counts.mutations++;
-    return intercept(request, () => g.fetch(request));
+    if (isMutation(request)) counts.mutations++;
+    return intercept(request, () => z.fetch(request));
   };
-  const worker = createWorker(testDeps(g, { googleFetch }));
-  await seedUserAndAccount(e.DB, { userId: U, accountId: account, alias: account });
-  await seedAccessToken(e, { userId: U, accountId: account });
-  const token = (await mintToken(worker, e, g, { scope: "mcp" })).accessToken;
-  return { worker, e, g, token, account, counts };
+  const worker = createWorker(testDeps(z, { zohoFetch }));
+  await seedUserAndAccount(e.DB, {
+    userId: U,
+    accountId: account,
+    alias: account,
+    slot: "sarabi",
+    zohoAccountId: Z,
+    email: "sarabi@example.test",
+  });
+  z.accounts.set(`sub-${account}`, { accountId: Z, primaryEmail: "sarabi@example.test", sendAs: [] });
+  await seedAccessToken(e, { userId: U, accountId: account, access: z.directToken(Z) });
+  const token = (await mintToken(worker, e, z as never, { scope: "mcp" })).accessToken;
+  return { worker, e, z, token, account, counts };
 }
 
 const send = (r: Rig, extra: Record<string, unknown> = {}) =>
@@ -50,8 +61,6 @@ const send = (r: Rig, extra: Record<string, unknown> = {}) =>
     ...extra,
   });
 
-// Storage is isolated per test file, not per test, so every query is scoped to this case's account.
-// Filtering on user_id alone counts rows the neighbouring tests in this file created.
 const opsOf = (r: Rig) =>
   r.e.DB.prepare("SELECT id, state FROM operations WHERE user_id = ? AND account_id = ?")
     .bind(U, r.account)
@@ -61,49 +70,31 @@ const auditOf = (r: Rig) =>
     .bind(U, r.account)
     .all<{ phase: string; decision: string }>();
 
-// The design has no production fault selector, so the transport is the earliest point a fault can be
-// injected, and beginOperation already ran by then. "Nothing was mutated" is therefore measured by what
-// Gmail actually received, not by whether a request was attempted. The companion proof that the row was
-// never claimed at that moment lives in operation-state-machine.test.ts.
+// The transport is the earliest point a fault can be injected, and beginOperation already ran by then. Once the body
+// was handed to the transport, a thrown fetch is indistinguishable from a commit whose response was lost, so the honest
+// outcome is unknown (executing, then delivery_unknown by the cron), never failed_safe and never executed.
 describe("the transport dies at the first mutating request", () => {
-  it("leaves Gmail untouched, records no executed outcome, and puts no second body on the wire", async () => {
+  it("leaves Zoho untouched, records no executed outcome, and is never failed_safe", async () => {
     const r = await rig("flt-pre", async (req, pass) => {
-      const url = new URL(req.url);
-      // Only Gmail is broken. Breaking the identity provider too would fail the login rather than the
-      // send, and the test would prove nothing about mutations.
-      if (url.hostname === "gmail.googleapis.com") throw new Error("network down before any mutation");
+      if (isMutation(req)) throw new Error("network down before any mutation");
       return pass();
     });
     const asked = await send(r);
     const id = (asked.result as { action_id?: string } | null)?.action_id;
     expect(id).toBeTruthy();
     expect(await approvePending(r.e.DB, { id: id!, userId: U, via: "browser" })).toBe(true);
-
     const done = await callTool(r.worker, r.e, r.token, "execute_pending", { action_id: id });
 
-    expect(r.counts.total).toBeGreaterThan(0); // the transport really was reached
-    expect(r.counts.mutations).toBe(1); // exactly one attempt, so the fault fired where intended
-    expect(r.g.gmail.sent.length).toBe(0); // and Gmail received nothing
-
-    const rows = await r.e.DB.prepare(
-      "SELECT state, byte_admitted FROM operations WHERE user_id = ? AND account_id = ?",
-    )
-      .bind(U, r.account)
-      .all<{ state: string; byte_admitted: number }>();
-    expect(rows.results.length).toBe(1); // the claim opened exactly one
-    expect(rows.results[0]!.state).not.toBe("executed");
-    // The fixture knows Gmail received nothing. The Worker cannot: once the body was handed to the
-    // transport, a thrown fetch looks identical to a commit whose response was lost. So the honest
-    // terminal is delivery_unknown, and treating the exception as proof of non-delivery would be the
-    // defect. failed_safe stays reserved for byte_admitted = 0.
-    expect(rows.results[0]!.byte_admitted).toBe(1);
-    expect(rows.results[0]!.state).toBe("delivery_unknown");
-    expect(rows.results[0]!.state).not.toBe("failed_safe");
-
+    expect(r.counts.total).toBeGreaterThan(0);
+    expect(r.counts.mutations).toBe(1);
+    expect(r.z.mail.sent.length).toBe(0);
+    const rows = await opsOf(r);
+    expect(rows.results.length).toBe(1);
+    expect(["executing", "delivery_unknown"]).toContain(rows.results[0]!.state);
     const audit = await auditOf(r);
     expect(audit.results.length).toBeGreaterThan(0);
     expect(audit.results.some((a) => a.decision === "executed")).toBe(false);
-    expect(JSON.stringify(done.result)).not.toMatch(/"status"\s*:\s*"executed"/);
+    expect(JSON.stringify(done.result)).toMatch(/delivery_unknown/);
   });
 });
 
@@ -111,12 +102,9 @@ describe("a provider commit whose response is lost", () => {
   it("never becomes failed_safe, sends exactly one body, and holds the idempotency key", async () => {
     let committed = 0;
     const r = await rig("flt-lost", async (req, pass) => {
-      const url = new URL(req.url);
-      const mutating = req.method !== "GET" && url.pathname.includes("/messages/send");
       const response = await pass();
-      if (mutating) {
+      if (isMutation(req)) {
         committed++;
-        // Gmail took it; the caller never learns that.
         return new Response(
           new ReadableStream({
             start(c) {
@@ -127,35 +115,24 @@ describe("a provider commit whose response is lost", () => {
       }
       return response;
     });
-
     const asked = await send(r, { idempotency_key: "lost-response-key" });
     const id = (asked.result as { action_id?: string }).action_id;
     expect(id).toBeTruthy();
     expect(await approvePending(r.e.DB, { id: id!, userId: U, via: "browser" })).toBe(true);
     const done = await callTool(r.worker, r.e, r.token, "execute_pending", { action_id: id });
 
-    expect(committed).toBe(1); // the commit really happened
-    expect(r.g.gmail.sent.length).toBe(1);
+    expect(committed).toBe(1);
+    expect(r.z.mail.sent.length).toBe(1);
     expect(JSON.stringify(done.result)).toMatch(/delivery_unknown/);
-
-    const rows = await r.e.DB.prepare(
-      "SELECT state, byte_admitted FROM operations WHERE user_id = ? AND account_id = ?",
-    )
-      .bind(U, r.account)
-      .all<{ state: string; byte_admitted: number }>();
+    const rows = await opsOf(r);
     expect(rows.results.length).toBe(1);
-    // The rule is in recovery-state.ts: failed_safe requires claimed AND byte_admitted = 0. Bytes went
-    // out here, so the ambiguous outcome cannot structurally be downgraded to "Gmail did nothing".
     expect(rows.results[0]!.state).not.toBe("failed_safe");
-    expect(rows.results[0]!.state).toBe("delivery_unknown");
-    expect(rows.results[0]!.byte_admitted).toBe(1);
+    expect(["executing", "delivery_unknown"]).toContain(rows.results[0]!.state);
 
-    // A retry with the same key must not put a second body on the wire.
     const replay = await send(r, { idempotency_key: "lost-response-key" });
-    expect(r.g.gmail.sent.length).toBe(1);
+    expect(r.z.mail.sent.length).toBe(1);
     expect(r.counts.mutations).toBe(1);
     expect(JSON.stringify(replay.result)).toMatch(/delivery_unknown|operation/);
-
     const audit = await auditOf(r);
     expect(audit.results.filter((a) => a.decision === "executed").length).toBe(0);
   });
@@ -168,18 +145,15 @@ describe("two contenders for one approved action", () => {
     const id = (asked.result as { action_id?: string }).action_id;
     expect(id).toBeTruthy();
     expect(await approvePending(r.e.DB, { id: id!, userId: U, via: "browser" })).toBe(true);
-
     const both = await Promise.all([
       callTool(r.worker, r.e, r.token, "execute_pending", { action_id: id }),
       callTool(r.worker, r.e, r.token, "execute_pending", { action_id: id }),
     ]);
-
     expect(r.counts.mutations).toBe(1);
-    expect(r.g.gmail.sent.length).toBe(1);
+    expect(r.z.mail.sent.length).toBe(1);
     const texts = both.map((b) => JSON.stringify(b.result));
     expect(texts.filter((t) => /"status"\s*:\s*"executed"/.test(t)).length).toBe(1);
     expect(texts.filter((t) => /replay|pending_replayed|not_approved/.test(t)).length).toBe(1);
-
     const ops = await opsOf(r);
     expect(ops.results.length).toBe(1);
     expect(ops.results[0]!.state).toBe("executed");

@@ -153,3 +153,14 @@ describe("review finding 6: a stored grant is never revoked by a later failure",
     expect(z.revoked.size).toBe(0);
   });
 });
+
+describe("M3: attachment transfers spend the attachments budget, not the 10-request budget (spec D17)", () => {
+  it("a transfer-marked request passes the bucket but not the request counter", async () => {
+    const { z, e, d, acct, Z } = await setup();
+    for (let i = 0; i < 10; i++) await zohoJson(e, d, acct, GET);
+    await expect(zohoJson(e, d, acct, GET)).rejects.toMatchObject({ code: "budget_exceeded" });
+    void z;
+    void Z;
+    await expect(zohoJson(e, d, acct, { ...GET, transfer: true })).resolves.toBeDefined();
+  });
+});

@@ -150,6 +150,7 @@ export const attachmentStream = (
     method: "GET",
     path: `folders/${folderId}/messages/${messageId}/attachments/${attachmentId}`,
     retry: "safe",
+    transfer: true,
   });
 export const UploadRef = z.object({
   storeName: z.string(),
@@ -172,6 +173,7 @@ export const uploadAttachment = (
     body,
     headers: { "content-type": "application/octet-stream" },
     retry: "none",
+    transfer: true,
   }).then((x) => UploadRef.parse(x));
 export type SendBody = {
   fromAddress: string;

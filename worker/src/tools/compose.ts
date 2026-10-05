@@ -1,18 +1,18 @@
 import { McpError } from "@zoho-mail-mcp/shared/errors";
-import { MediaType, type InlineAttachment, type MessageFormat } from "@zoho-mail-mcp/shared/schemas";
+import { CarriedAttachmentRef, MediaType, type InlineAttachment } from "@zoho-mail-mcp/shared/schemas";
 import type { Env } from "../env";
 import type { Deps } from "../deps";
 import { sha256Hex } from "../crypto/canonical";
 import { fromB64url } from "../crypto/random";
-import { gmailJson } from "../google/gmail";
-import { gmailFormatFor, splitAddressList, type GmailMessage } from "../google/messages";
-import { buildMimeStream, type MimeAttachment } from "../mime/build";
-import { messageIdFor } from "../operations/send";
 import { LIMITS, assertHeaderSafe, assertNotBlocked, utf8Length } from "../policy/limits";
 import { parseAddress } from "../policy/recipients";
-import { ingest, listUploadHandles, openStaged, type StagingRow } from "../staging/store";
+import { listUploadHandles, type SealedRow } from "../staging/sealed";
+import { accountStub, BUDGETS } from "../zoho/account-do";
+import type { ZohoAcct } from "../zoho/client";
+import { attachmentInfo, attachmentStream, uploadAttachment, type SendBody, type ZohoUploadRef } from "../zoho/mail";
+import type { MessageView } from "../zoho/messages";
 import type { AccountRef } from "./accounts";
-import type { ExecRun } from "./gate";
+import { resolveRef } from "./read";
 
 export type ComposeArgs = {
   to: string[];
@@ -103,49 +103,6 @@ export function intentArgs(args: Record<string, unknown>, inline: DecodedInline[
       };
 }
 
-/** Called only from a build step, after the decision: turns decoded inline bytes into upload handles. */
-export async function stageInline(
-  env: Env,
-  userId: string,
-  accountId: string,
-  inline: DecodedInline[],
-): Promise<string[]> {
-  const handles: string[] = [];
-  for (const d of inline) {
-    const row = await ingest(env, {
-      userId,
-      accountId,
-      direction: "upload",
-      filename: d.filename,
-      mime: d.mime,
-      length: d.bytes.byteLength,
-      body: new Response(d.bytes).body as ReadableStream<Uint8Array>,
-      declaredSha256: d.sha256,
-    });
-    handles.push(row.handle);
-  }
-  return handles;
-}
-
-/** Ownership, expiry, the blocked list again (spec 2.7), and the account's aggregate cap. A read; writes nothing. */
-export async function attachmentsFor(
-  env: Env,
-  userId: string,
-  account: AccountRef,
-  handles: string[],
-  extraBytes = 0,
-): Promise<{ rows: StagingRow[]; total: number }> {
-  const rows = await listUploadHandles(env.DB, { handles, userId, accountId: account.id });
-  for (const r of rows) assertNotBlocked(r.filename);
-  const total = rows.reduce((n, r) => n + r.size, 0) + extraBytes;
-  if (total > account.sendLimitBytes)
-    throw new McpError(
-      "limit_exceeded",
-      `limit_exceeded: attachments ${total} > send limit ${account.sendLimitBytes} bytes`,
-    );
-  return { rows, total };
-}
-
 export function human(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
@@ -168,144 +125,180 @@ export function recipientSummary(p: {
   return parts.join(" · ");
 }
 
-export async function getMessage(
+export const MESSAGE_BYTES_CEILING = 32 * 1_000_000; // D14 preflight under Zoho's 40 MB
+export type CarriedAttachment = { ref: ZohoUploadRef; filename: string; size: number };
+
+/** Sealed upload rows for the handles named: ownership, expiry, the blocked list, the account cap and the D14 ceiling. */
+export async function attachmentsFor(
   env: Env,
-  deps: Deps,
-  acct: { userId: string; accountId: string },
-  id: string,
-  format: MessageFormat,
-): Promise<GmailMessage> {
-  const q = gmailFormatFor(format);
-  return gmailJson<GmailMessage>(env, deps, acct, {
-    method: "GET",
-    path: `messages/${encodeURIComponent(id)}`,
-    query: { format: q.format, metadataHeaders: q.metadataHeaders },
-    retry: "safe",
-  });
+  userId: string,
+  account: AccountRef,
+  handles: string[],
+  otherBytes: number,
+): Promise<{ rows: SealedRow[] }> {
+  const rows = await listUploadHandles(env.DB, { handles, userId, accountId: account.id });
+  for (const r of rows) assertNotBlocked(r.filename);
+  const total = rows.reduce((n, r) => n + r.size, 0) + otherBytes;
+  if (total > MESSAGE_BYTES_CEILING)
+    throw new McpError(
+      "limit_exceeded",
+      `limit_exceeded: attachments ${total} bytes exceed the ${MESSAGE_BYTES_CEILING} byte message ceiling`,
+    );
+  if (total > account.sendLimitBytes)
+    throw new McpError(
+      "limit_exceeded",
+      `limit_exceeded: attachments ${total} > send limit ${account.sendLimitBytes} bytes`,
+    );
+  return { rows };
 }
 
-export async function fetchAttachmentBytes(
-  env: Env,
-  deps: Deps,
-  acct: { userId: string; accountId: string },
-  messageId: string,
-  attachmentId: string,
-): Promise<Uint8Array> {
-  const body = await gmailJson<{ data?: string }>(env, deps, acct, {
-    method: "GET",
-    path: `messages/${encodeURIComponent(messageId)}/attachments/${encodeURIComponent(attachmentId)}`,
-    retry: "safe",
-  });
-  if (!body.data) throw new McpError("handle_invalid", "handle_invalid: attachment body empty");
-  return fromB64url(body.data);
-}
-
-export type CarriedAttachment = {
+/** A mailbox attachment chosen for carrying, resolved at plan time; the bytes move only after approval. */
+export type CarrySpec = {
   message_id: string;
+  folder_id: string;
   attachment_id: string;
   filename: string;
-  mime: string;
   size: number;
 };
-export type ComposePayload = ComposeArgs & {
-  from: string;
-  attachments: string[];
-  carry: CarriedAttachment[];
-  in_reply_to?: string | null | undefined;
-  references?: string | null | undefined;
-};
 
 /**
- * Staged attachments stream from R2; carried originals are fetched from Gmail when their segment is
- * reached (one at a time, the JSON body of attachments.get is the bound). The message is never whole in memory.
+ * Plan time, no uploads (spec D17, G19): the cap of 10 is checked first, then each message is resolved once and each
+ * attachment confirmed with its name and size. Hostile mail with hundreds of attachments is refused here.
  */
-export async function composeMime(
+export async function carryPlan(
   env: Env,
   deps: Deps,
-  run: ExecRun,
-  p: ComposePayload,
-  operationId: string,
-): Promise<{ body: ReadableStream<Uint8Array>; length: number; rfc822MessageId: string }> {
-  const carryBytes = p.carry.reduce((n, c) => n + c.size, 0);
-  const { rows } = await attachmentsFor(env, run.userId, run.account, p.attachments, carryBytes);
-  const acct = { userId: run.userId, accountId: run.account.id };
-  const attachments: MimeAttachment[] = [
-    ...rows.map((r) => ({ filename: r.filename, mime: r.mime, size: r.size, open: () => openStaged(env, r) })),
-    ...p.carry.map((c) => {
-      assertNotBlocked(c.filename);
-      return {
-        filename: c.filename,
-        mime: c.mime,
-        size: c.size,
-        open: async () =>
-          new Response(await fetchAttachmentBytes(env, deps, acct, c.message_id, c.attachment_id)).body!,
-      };
-    }),
-  ];
-  const rfc822MessageId = messageIdFor(env, operationId);
-  const { stream, length } = buildMimeStream({
-    from: p.from,
-    to: p.to,
-    cc: p.cc,
-    bcc: p.bcc,
-    subject: p.subject ?? "",
-    messageId: rfc822MessageId,
-    inReplyTo: p.in_reply_to ?? undefined,
-    references: p.references ?? undefined,
-    text: p.body,
-    html: p.html_body,
-    attachments,
-  });
-  return { body: stream, length, rfc822MessageId };
-}
-
-/** Reply headers derived from the target (spec 2.3 `reply`): the Worker, not the model, threads the message. */
-const isAddress = (s: string | null): s is string => s !== null;
-
-/**
- * A header may hold a display name the restricted grammar of spec 2.7 refuses, such as
- * `"Office, Dean" <office@uni.test>`. A derived recipient keeps the address and drops the name: the
- * grammar is not loosened for addresses this server did not receive from its owner.
- */
-function derivedMailbox(raw: string): string | null {
-  const trimmed = raw.trim();
-  if (trimmed === "") return null;
-  const angled = /^[^<>]*<([^<>]+)>$/.exec(trimmed)?.[1]?.trim() ?? trimmed;
-  for (const candidate of [trimmed, angled]) {
-    try {
-      parseAddress(candidate);
-      return candidate;
-    } catch {
-      continue;
+  a: ZohoAcct,
+  refs: { message_id: string; folder_id?: string | undefined; attachment_id: string }[],
+): Promise<CarrySpec[]> {
+  if (refs.length === 0) return [];
+  if (refs.length > BUDGETS.attachments)
+    throw new McpError(
+      "budget_exceeded",
+      `budget_exceeded: at most ${BUDGETS.attachments} attachments can be carried in one call; ${refs.length} asked`,
+      { counter: "attachments" },
+    );
+  const infoByMessage = new Map<string, { folderId: string; info: Awaited<ReturnType<typeof attachmentInfo>> }>();
+  const out: CarrySpec[] = [];
+  for (const r of refs) {
+    let m = infoByMessage.get(r.message_id);
+    if (!m) {
+      const ref = await resolveRef(env, deps, a, r);
+      m = { folderId: ref.folderId, info: await attachmentInfo(env, deps, a, ref.folderId, ref.messageId) };
+      infoByMessage.set(r.message_id, m);
     }
+    const info = m.info.find((x) => x.attachmentId === r.attachment_id);
+    if (!info)
+      throw new McpError(
+        "handle_invalid",
+        `handle_invalid: no attachment ${r.attachment_id} on message ${r.message_id}. Available: ${
+          m.info.map((x) => `${x.attachmentId} (${x.attachmentName})`).join(", ") || "none"
+        }`,
+      );
+    assertNotBlocked(info.attachmentName);
+    out.push({
+      message_id: r.message_id,
+      folder_id: m.folderId,
+      attachment_id: r.attachment_id,
+      filename: info.attachmentName,
+      size: info.attachmentSize,
+    });
   }
-  return null;
+  return out;
 }
 
-export function threadingFor(target: GmailMessage): {
-  thread_id: string;
-  subject: string;
-  in_reply_to: string | null;
-  references: string | null;
-  from: string | null;
-  reply_to: string[];
-  to: string[];
-  cc: string[];
-} {
-  const h = (n: string) => target.payload?.headers?.find((x) => x.name.toLowerCase() === n)?.value ?? null;
-  const subjectRaw = h("subject") ?? "";
-  const subject = /^\s*re:/i.test(subjectRaw) ? subjectRaw : `Re: ${subjectRaw}`;
-  const mid = h("message-id");
-  const refs = [h("references"), mid].filter((x): x is string => !!x).join(" ");
-  const split = (v: string | null) => (v ? splitAddressList(v).map(derivedMailbox).filter(isAddress) : []);
-  return {
-    thread_id: target.threadId,
-    subject,
-    in_reply_to: mid,
-    references: refs || null,
-    from: derivedMailbox(h("from") ?? ""),
-    reply_to: split(h("reply-to")),
-    to: split(h("to")),
-    cc: split(h("cc")),
-  };
+/** After approval: stream each carried attachment into a fresh Zoho upload, within the attachments and bytes budgets. */
+export async function carryExecute(
+  env: Env,
+  deps: Deps,
+  a: ZohoAcct,
+  specs: CarrySpec[],
+): Promise<CarriedAttachment[]> {
+  if (specs.length === 0) return [];
+  const stub = accountStub(env, a.accountId);
+  if (!(await stub.budget(a.toolCallId, "attachments", specs.length)))
+    throw new McpError("budget_exceeded", `budget_exceeded: at most ${BUDGETS.attachments} attachments in one call`, {
+      counter: "attachments",
+    });
+  const out: CarriedAttachment[] = [];
+  for (const c of specs) {
+    if (!(await stub.budget(a.toolCallId, "bytes", c.size)))
+      throw new McpError("limit_exceeded", `limit_exceeded: carried attachments exceed ${BUDGETS.bytes} bytes`);
+    const res = await attachmentStream(env, deps, a, c.folder_id, c.message_id, c.attachment_id);
+    const up = await uploadAttachment(env, deps, a, c.filename, res.body as ReadableStream<Uint8Array>);
+    out.push({ ref: up, filename: c.filename, size: c.size });
+  }
+  return out;
 }
+
+/** Inline attachments become Zoho uploads in the build step, after the policy decision, like a carried file. */
+export async function uploadInline(
+  env: Env,
+  deps: Deps,
+  a: ZohoAcct,
+  inline: DecodedInline[],
+): Promise<CarriedAttachment[]> {
+  const out: CarriedAttachment[] = [];
+  for (const d of inline) {
+    const ref = await uploadAttachment(env, deps, a, d.filename, d.bytes);
+    out.push({ ref, filename: d.filename, size: d.size });
+  }
+  return out;
+}
+
+export function zohoBody(
+  args: {
+    to: string[];
+    cc: string[];
+    bcc: string[];
+    subject?: string | undefined;
+    body?: string | undefined;
+    html_body?: string | undefined;
+  },
+  from: string,
+  attachments: ZohoUploadRef[],
+  extra: Partial<SendBody> = {},
+): SendBody {
+  const b: SendBody = { fromAddress: from, toAddress: args.to.join(","), encoding: "UTF-8", ...extra };
+  if (args.cc.length) b.ccAddress = args.cc.join(",");
+  if (args.bcc.length) b.bccAddress = args.bcc.join(",");
+  if (args.subject !== undefined) b.subject = args.subject;
+  if (args.html_body !== undefined) {
+    b.content = args.html_body;
+    b.mailFormat = "html";
+  } else {
+    b.content = args.body ?? "";
+    b.mailFormat = "plaintext";
+  }
+  if (attachments.length) b.attachments = attachments;
+  return b;
+}
+
+/** Spec 5.3: Reply-To if present else From; plus To and Cc on reply_all; minus own and send-as; de-duplicated; never Bcc. Fallbacks for notes to self. */
+export function replyRecipients(
+  view: MessageView,
+  self: string[],
+  args: { to: string[]; cc: string[]; reply_all: boolean },
+): { to: string[]; cc: string[] } {
+  const norm = (s: string) => parseAddress(s).normalized;
+  const selfSet = new Set(self.map(norm));
+  const dedupe = (list: string[], exclude = new Set<string>()) => {
+    const seen = new Set(exclude);
+    const out: string[] = [];
+    for (const r of list) {
+      const n = norm(r);
+      if (seen.has(n)) continue;
+      seen.add(n);
+      out.push(n);
+    }
+    return out;
+  };
+  const primary = view.reply_to.length ? view.reply_to : view.from ? [view.from] : [];
+  let to = dedupe([...primary, ...(args.reply_all ? view.to : []), ...args.to], selfSet);
+  if (to.length === 0) to = dedupe(view.to, selfSet);
+  if (to.length === 0) to = dedupe([...primary, ...view.to]);
+  const cc = dedupe(args.reply_all ? [...view.cc, ...args.cc] : args.cc, new Set([...selfSet, ...to]));
+  return { to, cc };
+}
+export { CarriedAttachmentRef };
+export type { InlineAttachment };

@@ -6,31 +6,52 @@ import type { Env } from "../env";
 import type { Deps } from "../deps";
 import { canonicalize, hashCanonical } from "../crypto/canonical";
 import { gmailJson } from "../google/gmail";
-import { findAttachment, messageAttachments, messageView, type GmailDraft } from "../google/messages";
-import { sendDraft, sendMime } from "../operations/send";
-import { parseAddress, recipientModifiers } from "../policy/recipients";
+import { messageView as gmailMessageView, type GmailDraft } from "../google/messages";
+import { sendDraft } from "../operations/send";
+import { executeZohoSend } from "../operations/zoho-send";
+import { recipientModifiers } from "../policy/recipients";
+import { listUploadHandles } from "../staging/sealed";
+import type { ZohoAcct } from "../zoho/client";
+import type { ZohoUploadRef } from "../zoho/mail";
+import { htmlToText, type MessageView } from "../zoho/messages";
 import { trustContext, type AccountRef } from "./accounts";
 import {
   attachmentSummary,
   attachmentsFor,
-  composeMime,
-  getMessage,
+  carryExecute,
+  carryPlan,
   recipientSummary,
+  replyRecipients,
   senderFor,
-  stageInline,
-  threadingFor,
+  uploadInline,
   validateCompose,
-  type CarriedAttachment,
-  type ComposePayload,
+  zohoBody,
+  type CarrySpec,
   type DecodedInline,
 } from "./compose";
 import { defineTool, type Plan } from "./define";
 import type { ExecRun, ToolContext } from "./gate";
+import { getMessage, resolveRef } from "./read";
 
-type SendPayload = ComposePayload & {
-  message_id?: string;
-  thread_id?: string | null;
-  include_original_attachments?: boolean;
+type SendKind = "send" | "reply";
+type SendPayload = {
+  to: string[];
+  cc: string[];
+  bcc: string[];
+  subject?: string | undefined;
+  body?: string | undefined;
+  html_body?: string | undefined;
+  from: string;
+  /** Sealed upload handles from the companion, reserved by the gate. */
+  attachments: string[];
+  /** Mailbox attachments to re-upload after approval. */
+  carry: CarrySpec[];
+  /** Inline attachments already uploaded to Zoho in the build step. */
+  uploaded: { ref: ZohoUploadRef; filename: string; size: number }[];
+  kind: SendKind;
+  message_id?: string | undefined;
+  folder_id?: string | undefined;
+  thread_id?: string | null | undefined;
 };
 type SendArgs = {
   to: string[];
@@ -45,39 +66,38 @@ type SendArgs = {
 };
 const acct = (userId: string, account: AccountRef) => ({ userId, accountId: account.id });
 const openWorld = { readOnlyHint: false, destructiveHint: false, openWorldHint: true } as const;
+/** Plan-time Zoho calls share one budget per tool invocation. */
+const planAcct = (t: ToolContext, account: AccountRef): ZohoAcct => ({
+  userId: t.principal.userId,
+  accountId: account.id,
+  toolCallId: crypto.randomUUID(),
+});
+/** Card numbers and Australian tax file numbers raise the level even for trusted recipients (spec D9). */
+const SENSITIVE = [/\b(?:\d[ -]?){13,19}\b/, /\b\d{3}[ -]?\d{3}[ -]?\d{3}\b.*\bTFN\b/i];
 
 async function modifiersFor(
   env: Env,
   userId: string,
   account: AccountRef,
-  p: { to: string[]; cc: string[]; bcc: string[] },
+  p: { to: string[]; cc: string[]; bcc: string[]; body?: string | undefined; html_body?: string | undefined },
   hasAttachments: boolean,
 ): Promise<Modifier[]> {
   const mods = recipientModifiers([...p.to, ...p.cc, ...p.bcc], await trustContext(env, userId, account));
   if (hasAttachments) mods.unshift("+attachment");
+  const text = `${p.body ?? ""}\n${p.html_body ? htmlToText(p.html_body) : ""}`;
+  if (SENSITIVE.some((re) => re.test(text)) && !mods.includes("+sensitive")) mods.push("+sensitive");
   return mods;
 }
 
-function dedupe(list: string[], exclude: string[] = []): string[] {
-  const seen = new Set(exclude.map((s) => parseAddress(s).normalized));
-  const out: string[] = [];
-  for (const r of list) {
-    const n = parseAddress(r).normalized;
-    if (seen.has(n)) continue;
-    seen.add(n);
-    out.push(r);
-  }
-  return out;
-}
-
-/** Shared plan for send_message, reply and forward once recipients and threading are settled. Writes nothing; the build does. */
+/** Shared plan for send_message, reply and forward once recipients are settled. Policy runs on the final recipients. */
 async function planSend(
   env: Env,
-  userId: string,
+  deps: Deps,
+  a: ZohoAcct,
   account: AccountRef,
   args: SendArgs,
   inline: DecodedInline[],
-  extra: Partial<SendPayload> & { carry: CarriedAttachment[] },
+  extra: { carry: CarrySpec[]; kind: SendKind; message_id?: string; folder_id?: string; thread_id?: string | null },
   verb: string,
 ): Promise<Plan> {
   validateCompose(args);
@@ -85,13 +105,8 @@ async function planSend(
     throw new McpError("invalid_address", "invalid_address: at least one recipient is required");
   const from = senderFor(account, args.from);
   const given = args.attachments ?? [];
-  const { rows } = await attachmentsFor(
-    env,
-    userId,
-    account,
-    given,
-    extra.carry.reduce((n, c) => n + c.size, 0) + inline.reduce((n, d) => n + d.size, 0),
-  );
+  const otherBytes = extra.carry.reduce((n, c) => n + c.size, 0) + inline.reduce((n, d) => n + d.size, 0);
+  const { rows } = await attachmentsFor(env, a.userId, account, given, otherBytes);
   const files = [
     ...rows.map((r) => ({ filename: r.filename, size: r.size })),
     ...inline.map((d) => ({ filename: d.filename, size: d.size })),
@@ -101,22 +116,19 @@ async function planSend(
   return {
     modifiers: await modifiersFor(
       env,
-      userId,
+      a.userId,
       account,
-      recipients,
-      given.length + inline.length + extra.carry.length > 0,
+      { ...recipients, body: args.body, html_body: args.html_body },
+      files.length > 0,
     ),
-    // Spec 2.6's summary opens with the recipients; a reply or a forward names itself first because the
-    // owner needs to know which of the three they are approving, and a plain send has nothing to add.
     summary: `${verb ? `${verb} · ` : ""}${recipientSummary({ ...recipients, subject: args.subject })} · ${attachmentSummary(files)}`,
     facts: {
       recipients: args.to.length + args.cc.length + args.bcc.length,
-      attachments: given.length + inline.length + extra.carry.length,
+      attachments: files.length,
       ...(extra.message_id ? { ids: [extra.message_id] } : {}),
     },
     idempotencyKey: args.idempotency_key,
     build: async () => {
-      const attachments = [...given, ...(await stageInline(env, userId, account.id, inline))];
       const payload: SendPayload = {
         to: args.to,
         cc: args.cc,
@@ -125,41 +137,73 @@ async function planSend(
         body: args.body,
         html_body: args.html_body,
         from,
-        attachments,
-        ...extra,
+        attachments: given,
+        carry: extra.carry,
+        uploaded: (await uploadInline(env, deps, a, inline)).map((u) => ({ ...u })),
+        kind: extra.kind,
+        message_id: extra.message_id,
+        folder_id: extra.folder_id,
+        thread_id: extra.thread_id ?? null,
       };
-      return { payload: payload as unknown as Record<string, unknown>, handles: attachments };
+      return { payload: payload as unknown as Record<string, unknown>, handles: given };
     },
   };
 }
 
+/** After approval: sealed handles still valid (Review Focus 4), carried files re-uploaded, then one send. */
 async function executeSend(env: Env, deps: Deps, run: ExecRun) {
   const p = run.payload as unknown as SendPayload;
   if (!run.operationId) throw new McpError("internal", "send runs with an operation");
-  const { body, length, rfc822MessageId } = await composeMime(env, deps, run, p, run.operationId);
-  const m = await sendMime(env, deps, {
+  const a: ZohoAcct = { userId: run.userId, accountId: run.account.id, toolCallId: run.operationId };
+  if (p.attachments.length) {
+    const ph = p.attachments.map(() => "?").join(",");
+    const expired = await env.DB.prepare(
+      `SELECT handle FROM sealed_handles WHERE handle IN (${ph}) AND user_id = ? AND account_id = ? AND expires_at <= ?`,
+    )
+      .bind(...p.attachments, run.userId, run.account.id, Date.now())
+      .all<{ handle: string }>();
+    if (expired.results.length)
+      throw new McpError(
+        "handle_expired",
+        `handle_expired: stage ${expired.results.map((r) => r.handle).join(", ")} again`,
+      );
+  }
+  const rows = await listUploadHandles(env.DB, {
+    handles: p.attachments,
     userId: run.userId,
     accountId: run.account.id,
-    operationId: run.operationId,
-    body,
-    length,
-    threadId: p.thread_id ?? null,
-    rfc822MessageId,
-    recoveryContext: run.recoveryContext,
   });
-  return { provider_result_id: m.id, message: m };
+  const carried = await carryExecute(env, deps, a, p.carry);
+  const refs: ZohoUploadRef[] = [
+    ...rows.map((r) => JSON.parse(r.provider_ref) as ZohoUploadRef),
+    ...p.uploaded.map((u) => u.ref),
+    ...carried.map((c) => c.ref),
+  ];
+  const out = await executeZohoSend(env, deps, {
+    ...a,
+    operationId: run.operationId,
+    kind: p.kind,
+    ...(p.kind === "reply" && p.message_id ? { messageId: p.message_id } : {}),
+    body: zohoBody(p, p.from, refs),
+  });
+  return {
+    provider_result_id: out.message_id,
+    message_id: out.message_id,
+    folder_id: out.folder_id,
+    thread_id: p.thread_id ?? null,
+  };
 }
 
-function quoted(v: ReturnType<typeof messageView>): string {
+function quoted(v: MessageView): string {
   return [
-    "---------- Forwarded message ---------",
+    "---------- Forwarded message ----------",
     `From: ${v.from ?? ""}`,
     `Date: ${v.date ?? ""}`,
     `Subject: ${v.subject ?? ""}`,
     `To: ${v.to.join(", ")}`,
     ...(v.cc.length ? [`Cc: ${v.cc.join(", ")}`] : []),
     "",
-    v.plaintext_body ?? "",
+    v.plaintext_body ?? htmlToText(v.html_body ?? ""),
   ].join("\n");
 }
 
@@ -170,7 +214,7 @@ async function draftPayload(env: Env, deps: Deps, userId: string, account: Accou
     query: { format: "full" },
     retry: "safe",
   });
-  const v = messageView(dr.message, { format: "PLAIN_TEXT", bodyCharLimit: 1, includeBody: false });
+  const v = gmailMessageView(dr.message, { format: "PLAIN_TEXT", bodyCharLimit: 1, includeBody: false });
   return {
     draft_id: draftId,
     message_id: dr.message.id,
@@ -185,64 +229,29 @@ async function draftPayload(env: Env, deps: Deps, userId: string, account: Accou
   };
 }
 
-/**
- * Resolve files already in the mailbox into the same carry the forward tool uses, so the bytes go
- * Gmail to Gmail and never touch staging or the companion. Named by part_id because Gmail re-issues
- * attachmentId on every fetch and this reference has to survive an approval. The attachment_id
- * captured here is the one the execute step hands back to Gmail, which accepts an id from an earlier
- * read: measured live, a forward approved a minute after it was planned still carried its file.
- */
-async function carryFrom(
-  env: Env,
-  t: ToolContext,
-  account: AccountRef,
-  refs: readonly { message_id: string; part_id: string }[],
-): Promise<CarriedAttachment[]> {
-  const out: CarriedAttachment[] = [];
-  for (const ref of refs) {
-    const m = await getMessage(env, t.deps, acct(t.principal.userId, account), ref.message_id, "PLAIN_TEXT");
-    const meta = findAttachment(m, { partId: ref.part_id });
-    if (!meta || meta.attachment_id === null) {
-      const available = messageAttachments(m)
-        .filter((a) => a.attachment_id !== null)
-        .map((a) => `${a.part_id} (${a.filename})`)
-        .join(", ");
-      throw new McpError(
-        "handle_invalid",
-        `handle_invalid: message ${ref.message_id} has no attachable part ${ref.part_id}. Available: ${available || "none"}`,
-      );
-    }
-    out.push({
-      message_id: ref.message_id,
-      attachment_id: meta.attachment_id,
-      filename: meta.filename,
-      mime: meta.mime,
-      size: meta.size,
-    });
-  }
-  return out;
-}
-
 export function registerSendTools(server: McpServer, toolContext: (ctx: ServerContext) => ToolContext, env: Env): void {
   defineTool(server, toolContext, env, {
     name: "send_message",
     version: 1,
     description:
-      "Send new mail. Replies go through `reply`, existing drafts through `send_draft`. To attach a file that is already in this mailbox, pass attach_from_message with its message_id and part_id from get_message; `attachments` is only for staging handles uploaded by the local companion.",
+      "Send new mail. Replies go through `reply`. To attach a file already in this mailbox, pass attach_from_message with its message_id, folder_id and attachment_id from get_message (at most 10); `attachments` is only for handles uploaded by the local companion.",
     input: SendMessageInput,
     annotations: openWorld,
     action: "send.message",
     journal: true,
-    plan: async (e, t, account, args, inline) =>
-      planSend(
+    plan: async (e, t, account, args, inline) => {
+      const a = planAcct(t, account);
+      return planSend(
         e,
-        t.principal.userId,
+        t.deps,
+        a,
         account,
         args,
         inline,
-        { carry: await carryFrom(e, t, account, args.attach_from_message) },
+        { carry: await carryPlan(e, t.deps, a, args.attach_from_message), kind: "send" },
         "",
-      ),
+      );
+    },
     execute: executeSend,
   });
 
@@ -250,40 +259,33 @@ export function registerSendTools(server: McpServer, toolContext: (ctx: ServerCo
     name: "reply",
     version: 1,
     description:
-      "Reply to a message. The Worker derives the thread, subject, In-Reply-To and References. reply_all adds the original To and Cc minus this account. To send back a file from any message in this mailbox, pass attach_from_message with its message_id and part_id from get_message.",
+      "Reply to a message; pass its message_id and folder_id. The Worker derives the recipients: Reply-To or From, plus the original To and Cc with reply_all, minus this account; never the original Bcc. Policy is decided on those recipients, not on the thread.",
     input: ReplyInput,
     annotations: openWorld,
     action: "send.message",
     journal: true,
     plan: async (e, t, account, args, inline) => {
-      const th = threadingFor(
-        await getMessage(e, t.deps, acct(t.principal.userId, account), args.message_id, "METADATA_ONLY"),
-      );
-      const self = [account.email, ...account.sendAs];
-      const primary = th.reply_to.length ? th.reply_to : th.from ? [th.from] : [];
-      let to = dedupe([...primary, ...(args.reply_all ? th.to : []), ...args.to], self);
-      // Replying to a message this account sent used to refuse with "at least one recipient is
-      // required": the sender is us, so excluding our own addresses leaves nothing. Following up on
-      // your own last message is ordinary, and Gmail answers it by addressing the original
-      // recipients, so fall back to those. A note sent only to yourself falls back once more and
-      // replies to yourself, which is the only address the message names.
-      if (to.length === 0) {
-        to = dedupe(th.to, self);
-        if (to.length === 0) to = dedupe([...primary, ...th.to]);
-      }
-      const cc = dedupe(args.reply_all ? [...th.cc, ...args.cc] : args.cc, [...self, ...to]);
+      const a = planAcct(t, account);
+      const view = await getMessage(e, t.deps, a, await resolveRef(e, t.deps, a, args), "METADATA_ONLY", {
+        bodyCharLimit: 1,
+        includeBody: false,
+      });
+      const { to, cc } = replyRecipients(view, [account.email, ...account.sendAs], args);
+      const subjectRaw = view.subject ?? "";
+      const subject = /^\s*re:/i.test(subjectRaw) ? subjectRaw : `Re: ${subjectRaw}`;
       return planSend(
         e,
-        t.principal.userId,
+        t.deps,
+        a,
         account,
-        { ...args, to, cc, subject: th.subject },
+        { ...args, to, cc, subject },
         inline,
         {
-          carry: await carryFrom(e, t, account, args.attach_from_message),
-          message_id: args.message_id,
-          thread_id: th.thread_id,
-          in_reply_to: th.in_reply_to,
-          references: th.references,
+          carry: await carryPlan(e, t.deps, a, args.attach_from_message),
+          kind: "reply",
+          message_id: view.id,
+          folder_id: view.folder_id,
+          thread_id: view.thread_id,
         },
         "Reply",
       );
@@ -295,42 +297,42 @@ export function registerSendTools(server: McpServer, toolContext: (ctx: ServerCo
     name: "forward",
     version: 1,
     description:
-      "Forward a message with optional text. Original attachments are excluded unless include_original_attachments is true, which carries all of them; to pick individual files, or to attach them to a reply or a new message instead, use attach_from_message.",
+      "Forward a message with optional text; pass its message_id and folder_id. Original attachments are excluded unless include_original_attachments is true; at most 10 attachments are carried, and a message with more is refused before anything is uploaded.",
     input: ForwardInput,
     annotations: openWorld,
     action: "send.forward",
     journal: true,
     plan: async (e, t, account, args, inline) => {
-      const v = messageView(
-        await getMessage(e, t.deps, acct(t.principal.userId, account), args.message_id, "PLAIN_TEXT"),
-        { format: "PLAIN_TEXT", bodyCharLimit: 200_000, includeBody: true },
-      );
-      const carry: CarriedAttachment[] = args.include_original_attachments
-        ? v.attachments
-            .filter((a) => a.attachment_id !== null)
-            .map((a) => ({
-              message_id: args.message_id,
-              attachment_id: a.attachment_id!,
-              filename: a.filename,
-              mime: a.mime,
-              size: a.size,
-            }))
-        : [];
+      const a = planAcct(t, account);
+      const ref = await resolveRef(e, t.deps, a, args);
+      const v = await getMessage(e, t.deps, a, ref, "PLAIN_TEXT", { bodyCharLimit: 200_000, includeBody: true });
+      // Originals are refused above 10 before any upload (spec D17, G19); picked files go through carryPlan's cap.
+      if (args.include_original_attachments && v.attachments.length > 10)
+        throw new McpError(
+          "budget_exceeded",
+          `budget_exceeded: the message has ${v.attachments.length} attachments; at most 10 can be forwarded`,
+          { counter: "attachments" },
+        );
+      const carry = args.include_original_attachments
+        ? v.attachments.map((x) => ({
+            message_id: v.id,
+            folder_id: v.folder_id,
+            attachment_id: x.attachment_id,
+            filename: x.filename,
+            size: x.size,
+          }))
+        : await carryPlan(e, t.deps, a, args.attach_from_message);
       const subjectRaw = v.subject ?? "";
       const subject = /^\s*fwd?:/i.test(subjectRaw) ? subjectRaw : `Fwd: ${subjectRaw}`;
       const body = `${args.forward_text ? args.forward_text + "\n\n" : ""}${quoted(v)}`;
       return planSend(
         e,
-        t.principal.userId,
+        t.deps,
+        a,
         account,
         { ...args, subject, body },
         inline,
-        {
-          carry,
-          message_id: args.message_id,
-          thread_id: null,
-          include_original_attachments: args.include_original_attachments,
-        },
+        { carry, kind: "send", message_id: v.id },
         "Forward",
       );
     },

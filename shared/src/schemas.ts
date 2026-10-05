@@ -210,12 +210,12 @@ export const UpdateDraftInput = z.object({
   bcc: z.array(Recipient).max(2000).optional(),
 });
 export const IdempotencyKey = z.string().min(1).max(128);
-/**
- * A file already in the mailbox, named by the part that holds it. part_id and not attachment_id:
- * Gmail re-issues attachmentId on every fetch, so an id a caller read a moment ago cannot be
- * resolved later, and this reference has to survive from the tool call through an approval.
- */
-export const CarriedAttachmentRef = z.strictObject({ message_id: LegacyGmailId, part_id: z.string().min(1).max(64) });
+/** A file already in the mailbox. Zoho attachment ids are stable, so the reference survives an approval. */
+export const CarriedAttachmentRef = z.strictObject({
+  message_id: ZohoId,
+  folder_id: ZohoId.optional(),
+  attachment_id: ZohoId,
+});
 export const CarryFrom = z.array(CarriedAttachmentRef).max(20).default([]);
 
 export const SendMessageInput = z.object({
@@ -227,7 +227,8 @@ export const SendMessageInput = z.object({
 export const ReplyInput = z
   .object({
     account: AccountAlias,
-    message_id: LegacyGmailId,
+    message_id: ZohoId,
+    folder_id: ZohoId.optional(),
     reply_all: z.boolean().default(false),
     ...ComposeFields,
     attach_from_message: CarryFrom,
@@ -237,9 +238,12 @@ export const ReplyInput = z
 export const ForwardInput = z
   .object({
     account: AccountAlias,
-    message_id: LegacyGmailId,
+    message_id: ZohoId,
+    folder_id: ZohoId.optional(),
     forward_text: z.string().max(600_000).optional(),
     include_original_attachments: z.boolean().default(false),
+    /** Pick individual files instead of all originals (at most 10). Ignored when include_original_attachments is true. */
+    attach_from_message: CarryFrom,
     ...ComposeFields,
     idempotency_key: IdempotencyKey.optional(),
   })

@@ -111,8 +111,19 @@ export async function listUploadHandles(
     .all<SealedRow>();
   const found = new Set(rows.results.map((r) => r.handle));
   const missing = o.handles.filter((h) => !found.has(h));
-  if (missing.length > 0)
+  if (missing.length > 0) {
+    // An owned, unused upload that only ran out of time is handle_expired: the fix is to stage it again.
+    const expired = await db
+      .prepare(
+        `SELECT handle FROM sealed_handles WHERE handle IN (${missing.map(() => "?").join(",")}) AND user_id = ? AND account_id = ?
+           AND direction = 'upload' AND consumed_at IS NULL AND expires_at <= ?`,
+      )
+      .bind(...missing, o.userId, o.accountId, Date.now())
+      .all<{ handle: string }>();
+    if (expired.results.length === missing.length)
+      throw new McpError("handle_expired", `handle_expired: stage ${missing.join(", ")} again`, { handles: missing });
     throw new McpError("handle_invalid", `handle_invalid: ${missing.join(", ")}`, { handles: missing });
+  }
   return o.handles.map((h) => rows.results.find((r) => r.handle === h)!);
 }
 

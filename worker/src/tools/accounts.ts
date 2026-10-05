@@ -1,5 +1,5 @@
 import { McpError } from "@zoho-mail-mcp/shared/errors";
-import type { Env, Slot } from "../env";
+import { orgDomains, type Env, type Slot } from "../env";
 import type { TrustContext } from "../policy/recipients";
 
 export type AccountRef = {
@@ -80,6 +80,7 @@ export async function trustContext(env: Env, userId: string, acct: AccountRef): 
   return {
     selfAddresses: [acct.email, ...acct.sendAs],
     allowlist: rows.results.map((r) => r.pattern),
-    orgDomains: acct.orgDomains,
+    // Spec section 6: organisation domains are deployment-wide (ORG_DOMAINS); a per-account list only adds to them.
+    orgDomains: [...new Set([...orgDomains(env), ...acct.orgDomains.map((d) => d.toLowerCase())])],
   };
 }

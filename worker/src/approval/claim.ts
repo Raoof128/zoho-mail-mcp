@@ -1,7 +1,7 @@
 import { McpError } from "@zoho-mail-mcp/shared/errors";
 import { StagingHandle } from "@zoho-mail-mcp/shared/schemas";
 import { randomId } from "../crypto/random";
-import { reserveStatements } from "../staging/store";
+import { reserveStatements } from "../staging/reserve";
 import { getPending, type PendingRow } from "./pending";
 
 /** Handles come from the approved payload only. Any other shape is a payload_mismatch, never a guess. */
@@ -68,6 +68,21 @@ export async function claimPending(
     const msg = String((e as Error).message ?? e);
     const after = await getPending(db, o.id, o.userId);
     if (after?.state === "approved" && handles.length > 0) {
+      // Review Focus 4: a staged file that ran out of time between approval and execution is handle_expired, so the
+      // owner knows to stage it again; nothing is sent without it.
+      const ph = handles.map(() => "?").join(",");
+      const expired = await db
+        .prepare(
+          `SELECT handle FROM sealed_handles WHERE handle IN (${ph}) AND consumed_at IS NULL AND expires_at <= ?
+           UNION SELECT handle FROM staging_objects WHERE handle IN (${ph}) AND consumed_at IS NULL AND expires_at <= ?`,
+        )
+        .bind(...handles, Date.now(), ...handles, Date.now())
+        .all<{ handle: string }>();
+      if (expired.results.length > 0)
+        throw new McpError(
+          "handle_expired",
+          `handle_expired: stage ${expired.results.map((r) => r.handle).join(", ")} again`,
+        );
       throw new McpError("handle_reserved", `handle_reserved: one or more payload handles unavailable (${msg})`);
     }
     if (after?.state !== "approved")

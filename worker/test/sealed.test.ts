@@ -45,7 +45,11 @@ describe("sealed handles", () => {
     expect(
       (await listUploadHandles(env.DB, { handles: [H("a")], userId: "u", accountId: "a" })).map((r) => r.handle),
     ).toEqual([H("a")]);
+    // Expired but otherwise valid: handle_expired, so the owner knows to stage it again.
     await expect(listUploadHandles(env.DB, { handles: [H("b")], userId: "u", accountId: "a" })).rejects.toMatchObject({
+      code: "handle_expired",
+    });
+    await expect(listUploadHandles(env.DB, { handles: [H("z")], userId: "u", accountId: "a" })).rejects.toMatchObject({
       code: "handle_invalid",
     });
     await env.DB.batch(

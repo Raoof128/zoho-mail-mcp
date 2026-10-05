@@ -57,17 +57,11 @@ export async function callTool(
   const r = await rawCall(w, env, token, name, args);
   if (r.isError) {
     const code = typeof r.result === "object" && r.result?.error ? r.result.error : String(r.result).split(":")[0];
-    throw Object.assign(new Error(String(r.result)), { code });
+    throw Object.assign(new Error(typeof r.result === "object" ? JSON.stringify(r.result) : String(r.result)), {
+      code,
+    });
   }
-  if (opts.approve && r.result?.status === "pending_approval") {
-    const b = await loginAs(w, env, z, { sub: user, email: `${user}@example.test` });
-    const page = await b.get(new URL(r.result.approval.url).pathname);
-    const html = await page.text();
-    await b.post(new URL(r.result.approval.url).pathname, { csrf: csrfFrom(html), decision: "approve" });
-    const done = await rawCall(w, env, token, "execute_pending", { action_id: r.result.action_id });
-    if (done.isError) throw Object.assign(new Error(String(done.result)), { code: done.result?.error ?? "error" });
-    return done.result;
-  }
+  if (opts.approve && r.result?.status === "pending_approval") return approvePending(env, deps, user, r.result);
   return r.result;
 }
 export async function stagingGet(env: Env, deps: Deps, user: string, handle: string): Promise<Response> {
@@ -78,4 +72,29 @@ export async function stagingGet(env: Env, deps: Deps, user: string, handle: str
     env,
     {} as never,
   );
+}
+
+/** Approves a pending action in the browser as its owner, then runs it with execute_pending. */
+export async function approvePending(
+  env: Env,
+  deps: Deps,
+  user: string,
+  pending: { approval: { url: string }; action_id: string },
+): Promise<any> {
+  const w = workerFor(deps);
+  const z = zohoOf(deps);
+  const token = await mcpTokenFor(w, env, z, user);
+  const b = await loginAs(w, env, z, { sub: user, email: `${user}@example.test` });
+  const path = new URL(pending.approval.url).pathname;
+  const html = await (await b.get(path)).text();
+  // The page carries more than one form; take the approval form's token.
+  const posted = await b.post(path, { csrf: csrfFrom(html, path), decision: "approve" });
+  if (posted.status >= 400) throw new Error(`approval refused: ${posted.status} ${await posted.text()}`);
+  const done = await rawCall(w, env, token, "execute_pending", { action_id: pending.action_id });
+  if (done.isError)
+    throw Object.assign(
+      new Error(typeof done.result === "object" ? JSON.stringify(done.result) : String(done.result)),
+      { code: done.result?.error ?? "error" },
+    );
+  return done.result;
 }

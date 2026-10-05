@@ -37,7 +37,7 @@ export function ownerEmails(env: Env): string[] {
   return csv(env.OWNER_EMAILS).map((e) => e.toLowerCase());
 }
 export function orgDomains(env: Env): string[] {
-  return csv(env.ORG_DOMAINS).map((d) => d.toLowerCase());
+  return csv(env.ORG_DOMAINS ?? "").map((d) => d.toLowerCase()); // unset means none, never a crash
 }
 export const SLOT_NAMES = ["sarabi", "rcp"] as const;
 export type Slot = (typeof SLOT_NAMES)[number];

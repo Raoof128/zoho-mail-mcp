@@ -1,3 +1,4 @@
+import { consumeStatements, releaseStatements } from "../staging/reserve";
 import { auditStatement, type AuditBase } from "../audit/log";
 
 export type Settlement = {
@@ -31,11 +32,7 @@ export async function settleExecuted(
           `INSERT INTO _assert (x) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM operations WHERE id = ? AND state = 'executed')`,
         )
         .bind(s.operationId),
-      db
-        .prepare(
-          `UPDATE staging_objects SET consumed_at = ?, reserved_by_operation_id = NULL WHERE reserved_by_operation_id = ? AND consumed_at IS NULL`,
-        )
-        .bind(now, s.operationId),
+      ...consumeStatements(db, s.operationId, now),
     );
   }
   if (s.pendingId) {
@@ -75,11 +72,7 @@ export async function settleFailedSafe(
           `INSERT INTO _assert (x) SELECT 1 WHERE NOT EXISTS (SELECT 1 FROM operations WHERE id = ? AND state = 'failed_safe')`,
         )
         .bind(s.operationId),
-      db
-        .prepare(
-          `UPDATE staging_objects SET reserved_by_operation_id = NULL WHERE reserved_by_operation_id = ? AND consumed_at IS NULL`,
-        )
-        .bind(s.operationId),
+      ...releaseStatements(db, s.operationId),
     );
   }
   if (s.pendingId) {
