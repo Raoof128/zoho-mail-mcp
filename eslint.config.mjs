@@ -8,7 +8,6 @@ export default tseslint.config(
     ignores: [
       "**/node_modules/**",
       "**/dist/**",
-      "**/.build/**",
       "**/.wrangler/**",
       // Local session-tool scratch, not part of the project.
       ".remember/**",

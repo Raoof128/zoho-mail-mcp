@@ -111,7 +111,7 @@ it("init creates the Received and To Send folders and configures the default roo
     { encoding: "utf8", timeout: 60_000, env },
   );
   expect(init.status, init.stderr).toBe(0);
-  expect(init.stdout).not.toMatch(/—/);
+  expect(init.stdout).not.toMatch(new RegExp("\\u2014"));
   const config = JSON.parse(readFileSync(join(home, ".config", "zoho-mail-mcp", "config.json"), "utf8")) as {
     roots: Record<string, { path: string; read: boolean; write: boolean }>;
   };
@@ -149,7 +149,7 @@ it("configure-clients adds the companion to Claude Desktop, keeps other servers,
   expect(first.stdout).toContain("Codex: not installed, skipped.");
   expect(first.stdout).toContain("Claude Desktop: added zoho-mail-companion");
   expect(first.stdout).toContain("https://mail-mcp.example.test/mcp");
-  expect(first.stdout).not.toMatch(/—/);
+  expect(first.stdout).not.toMatch(new RegExp("\\u2014"));
   const config = JSON.parse(readFileSync(join(desktop, "claude_desktop_config.json"), "utf8")) as {
     mcpServers: Record<string, { command: string; args: string[] }>;
   };

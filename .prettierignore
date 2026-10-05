@@ -5,6 +5,4 @@ dist/
 worker/worker-configuration.d.ts
 docs/parity/
 
-**/.build/
-**/.swiftpm/
 .superpowers/
