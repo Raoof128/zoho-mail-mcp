@@ -13,7 +13,6 @@
   "d1_databases": [
     { "binding": "DB", "database_name": "gmail-mcp", "database_id": "local-dev", "migrations_dir": "migrations" },
   ],
-  // Dev and tests only: staging/store.ts still uses R2 until M5 Task 5.1 removes it. Production config has no R2.
   "durable_objects": { "bindings": [{ "name": "ACCOUNT_DO", "class_name": "AccountDO" }] },
   "migrations": [{ "tag": "v1", "new_sqlite_classes": ["AccountDO"] }],
   "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "local-dev" }],
