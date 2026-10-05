@@ -12,6 +12,49 @@ import { accountAssert, assertion } from "./transfers";
  * Spec D16: a download handle names an attachment Zoho holds; the bytes stream from Zoho on each read and are never
  * stored in Cloudflare. The companion verifies them against the sealed digest.
  */
+/**
+ * Takes one concurrent stream slot (global and per-owner caps) as a lease; returns its release. Every Zoho attachment
+ * stream through the Worker takes one: the staging GET, the one-time link and download_attachment's digest pass
+ * (security review of 6e0b0dc). Throws `code` when the caps are full.
+ */
+export async function acquireStreamSlot(
+  db: D1Database,
+  o: {
+    user: string;
+    accountId: string;
+    key: string;
+    until: number;
+    now: number;
+    code: "handle_invalid" | "rate_limited";
+  },
+): Promise<() => Promise<void>> {
+  const id = randomId("ds");
+  try {
+    await db.batch([
+      assertion(db, "(SELECT count(*) FROM download_streams WHERE lease_until>?)<?", [o.now, L.downloadsGlobal]),
+      assertion(db, "(SELECT count(*) FROM download_streams WHERE user_id=? AND lease_until>?)<?", [
+        o.user,
+        o.now,
+        L.downloadsOwner,
+      ]),
+      db
+        .prepare(
+          "INSERT INTO download_admissions(user_id,handle,account_id,admitted_at,lease_until,retain_until) VALUES(?,?,?,?,?,?) ON CONFLICT(user_id,handle) DO UPDATE SET lease_until=MAX(lease_until,excluded.lease_until),retain_until=MAX(retain_until,excluded.retain_until)",
+        )
+        .bind(o.user, o.key, o.accountId, o.now, o.until, o.now + L.retentionMs),
+      db.prepare("INSERT INTO download_streams VALUES(?,?,?,?)").bind(id, o.user, o.key, o.until),
+    ]);
+  } catch {
+    throw new McpError(o.code, `${o.code}: too many attachment streams at once; try again shortly`);
+  }
+  let released = false;
+  return async () => {
+    if (released) return;
+    released = true;
+    await db.prepare("DELETE FROM download_streams WHERE id=?").bind(id).run();
+  };
+}
+
 export async function leasedDownload(
   env: Env,
   deps: Deps,
@@ -33,33 +76,22 @@ export async function leasedDownload(
   // recovery budget holds, and concurrent streams are capped globally and per owner. A stream slot is a lease that
   // is released when the body ends, errors or is cancelled, and lapses on its own if the Worker dies.
   const until = Math.min(now + L.leaseMs, row.created_at + 60 * 60_000);
-  const id = randomId("ds");
   try {
     await db.batch([
       accountAssert(db, user, row.account_id),
       ...recoveryBudget(db, user, "download:" + handle, 2, now + L.retentionMs),
-      assertion(db, "(SELECT count(*) FROM download_streams WHERE lease_until>?)<?", [now, L.downloadsGlobal]),
-      assertion(db, "(SELECT count(*) FROM download_streams WHERE user_id=? AND lease_until>?)<?", [
-        user,
-        now,
-        L.downloadsOwner,
-      ]),
-      db
-        .prepare(
-          "INSERT INTO download_admissions(user_id,handle,account_id,admitted_at,lease_until,retain_until) VALUES(?,?,?,?,?,?) ON CONFLICT(user_id,handle) DO UPDATE SET lease_until=MAX(lease_until,excluded.lease_until),retain_until=MAX(retain_until,excluded.retain_until)",
-        )
-        .bind(user, handle, row.account_id, now, until, now + L.retentionMs),
-      db.prepare("INSERT INTO download_streams VALUES(?,?,?,?)").bind(id, user, handle, until),
     ]);
   } catch {
     throw new McpError("handle_invalid", "handle_invalid: download admission lost or busy");
   }
-  let released = false;
-  const release = async () => {
-    if (released) return;
-    released = true;
-    await db.prepare("DELETE FROM download_streams WHERE id=?").bind(id).run();
-  };
+  const release = await acquireStreamSlot(db, {
+    user,
+    accountId: row.account_id,
+    key: handle,
+    until,
+    now,
+    code: "handle_invalid",
+  });
   let res: Response;
   try {
     const ref = JSON.parse(row.provider_ref) as { folderId: string; messageId: string; attachmentId: string };
@@ -73,6 +105,13 @@ export async function leasedDownload(
     row,
     body: new ReadableStream<Uint8Array>({
       async pull(controller) {
+        // The slot is a lease: a stream still running after it lapses is cut off, so the caps cannot be outrun.
+        if (Date.now() > until) {
+          controller.error(new McpError("handle_expired", "handle_expired: download lease ended"));
+          await reader.cancel().catch(() => {});
+          await release();
+          return;
+        }
         try {
           const part = await reader.read();
           if (part.done) {

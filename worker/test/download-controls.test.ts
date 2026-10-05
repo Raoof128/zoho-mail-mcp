@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { STAGING_LIMITS as L } from "@zoho-mail-mcp/shared/staging";
 import { zohoFixture } from "./zoho-mail.test";
 import { callTool } from "./zoho-helpers";
@@ -71,5 +71,61 @@ describe("download admission controls", () => {
     // Cancelling frees the slots.
     const { body } = await leasedDownload(f.e, f.d, "u", handles[L.downloadsOwner]!);
     await new Response(body).arrayBuffer();
+  });
+  it("download_attachment's digest pass takes a stream slot too (security review of 6e0b0dc)", async () => {
+    const f = await zohoFixture();
+    const m = f.z.mail.seedMessage(f.Z, {
+      folder: "Inbox",
+      from: "c@example.org",
+      to: ["sarabi@example.test"],
+      subject: "d",
+      content: "x",
+      attachments: Array.from({ length: L.downloadsOwner + 1 }, (_, i) => ({
+        name: `g${i}.pdf`,
+        bytes: new Uint8Array([i]),
+        mime: "application/pdf",
+      })),
+    });
+    const atts = f.z.mail.get(f.Z, m.messageId)!.attachments;
+    const seal = (i: number) =>
+      callTool(f.e, f.d, "u", "download_attachment", {
+        account: "sarabi",
+        message_id: m.messageId,
+        folder_id: m.folderId,
+        attachment_id: atts[i]!.attachmentId,
+      });
+    const open: ReadableStream<Uint8Array>[] = [];
+    for (let i = 0; i < L.downloadsOwner; i++)
+      open.push((await leasedDownload(f.e, f.d, "u", (await seal(i)).handle as string)).body);
+    await expect(seal(L.downloadsOwner)).rejects.toMatchObject({ code: "rate_limited" });
+    await Promise.all(open.map((b) => b.cancel()));
+    expect((await seal(L.downloadsOwner)).handle).toMatch(/^sh_/);
+  });
+  it("a stream that outlives its lease is cut off, so a lapsed slot cannot hide a live stream", async () => {
+    const f = await zohoFixture();
+    const m = f.z.mail.seedMessage(f.Z, {
+      folder: "Inbox",
+      from: "c@example.org",
+      to: ["sarabi@example.test"],
+      subject: "d",
+      content: "x",
+      attachments: [{ name: "slow.bin", bytes: new Uint8Array(4096), mime: "application/octet-stream" }],
+    });
+    const h = (
+      await callTool(f.e, f.d, "u", "download_attachment", {
+        account: "sarabi",
+        message_id: m.messageId,
+        folder_id: m.folderId,
+        attachment_id: f.z.mail.get(f.Z, m.messageId)!.attachments[0]!.attachmentId,
+      })
+    ).handle as string;
+    const { body } = await leasedDownload(f.e, f.d, "u", h);
+    const real = Date.now();
+    const spy = vi.spyOn(Date, "now").mockReturnValue(real + L.leaseMs + 1000);
+    try {
+      await expect(new Response(body).arrayBuffer()).rejects.toThrow();
+    } finally {
+      spy.mockRestore();
+    }
   });
 });

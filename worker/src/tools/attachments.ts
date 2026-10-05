@@ -8,6 +8,7 @@ import { randomHandle } from "../crypto/random";
 import { attachmentInfo } from "../zoho/mail";
 import { streamFromZoho } from "../zoho/attachments";
 import { insertSealed, UPLOAD_HANDLE_TTL_MS } from "../staging/sealed";
+import { acquireStreamSlot } from "../staging/downloads";
 import { defineTool } from "./define";
 import type { ExecRun, ToolContext } from "./gate";
 import { resolveRef } from "./read";
@@ -72,54 +73,67 @@ export function registerAttachmentTools(
           `limit_exceeded: attachment is ${info.attachmentSize} bytes, ceiling ${STAGING_LIMITS.fileBytes}`,
         );
       // One pass to learn the true digest: the companion verifies bytes against it later.
-      const res = await streamFromZoho(e, d, a, { ...ref, attachmentId: p.attachment_id });
-      // Streamed into an incremental digest, never held in memory (same rule as uploads, security review of 421a605).
-      const digest = new crypto.DigestStream("SHA-256");
-      let length = 0;
-      await res
-        .body!.pipeThrough(
-          new TransformStream<Uint8Array, Uint8Array>({
-            transform(chunk, c) {
-              length += chunk.byteLength;
-              if (length > STAGING_LIMITS.fileBytes)
-                throw new McpError("limit_exceeded", "limit_exceeded: attachment too large");
-              c.enqueue(chunk);
-            },
-          }),
-        )
-        .pipeTo(digest);
-      if (length !== info.attachmentSize)
-        throw new McpError("handle_invalid", "handle_invalid: zoho attachment size changed");
-      const sha256 = [...new Uint8Array(await digest.digest)].map((x) => x.toString(16).padStart(2, "0")).join("");
-      const now = Date.now();
-      const handle = randomHandle();
-      await insertSealed(e.DB, {
-        handle,
-        user_id: run.userId,
-        account_id: run.account.id,
-        direction: "download",
-        provider_ref: JSON.stringify({
-          folderId: ref.folderId,
-          messageId: ref.messageId,
-          attachmentId: p.attachment_id,
-        }),
-        filename: info.attachmentName,
-        mime: res.headers.get("content-type")?.split(";")[0] ?? "application/octet-stream",
-        size: info.attachmentSize,
-        sha256,
-        created_at: now,
-        expires_at: now + UPLOAD_HANDLE_TTL_MS,
+      const slotNow = Date.now();
+      const release = await acquireStreamSlot(e.DB, {
+        user: run.userId,
+        accountId: run.account.id,
+        key: `seal:${ref.messageId}:${p.attachment_id}`,
+        until: slotNow + STAGING_LIMITS.leaseMs,
+        now: slotNow,
+        code: "rate_limited",
       });
-      const link = await oneTimeLink(e, run.userId, handle, now);
-      return {
-        handle,
-        filename: info.attachmentName,
-        mime: res.headers.get("content-type") ?? "application/octet-stream",
-        size: info.attachmentSize,
-        sha256,
-        expires_at: new Date(now + UPLOAD_HANDLE_TTL_MS).toISOString(),
-        one_time_link: link,
-      };
+      try {
+        const res = await streamFromZoho(e, d, a, { ...ref, attachmentId: p.attachment_id });
+        // Streamed into an incremental digest, never held in memory (same rule as uploads, security review of 421a605).
+        const digest = new crypto.DigestStream("SHA-256");
+        let length = 0;
+        await res
+          .body!.pipeThrough(
+            new TransformStream<Uint8Array, Uint8Array>({
+              transform(chunk, c) {
+                length += chunk.byteLength;
+                if (length > STAGING_LIMITS.fileBytes)
+                  throw new McpError("limit_exceeded", "limit_exceeded: attachment too large");
+                c.enqueue(chunk);
+              },
+            }),
+          )
+          .pipeTo(digest);
+        if (length !== info.attachmentSize)
+          throw new McpError("handle_invalid", "handle_invalid: zoho attachment size changed");
+        const sha256 = [...new Uint8Array(await digest.digest)].map((x) => x.toString(16).padStart(2, "0")).join("");
+        const now = Date.now();
+        const handle = randomHandle();
+        await insertSealed(e.DB, {
+          handle,
+          user_id: run.userId,
+          account_id: run.account.id,
+          direction: "download",
+          provider_ref: JSON.stringify({
+            folderId: ref.folderId,
+            messageId: ref.messageId,
+            attachmentId: p.attachment_id,
+          }),
+          filename: info.attachmentName,
+          mime: res.headers.get("content-type")?.split(";")[0] ?? "application/octet-stream",
+          size: info.attachmentSize,
+          sha256,
+          created_at: now,
+          expires_at: now + UPLOAD_HANDLE_TTL_MS,
+        });
+        const link = await oneTimeLink(e, run.userId, handle, now);
+        return {
+          handle,
+          filename: info.attachmentName,
+          mime: res.headers.get("content-type") ?? "application/octet-stream",
+          size: info.attachmentSize,
+          sha256,
+          expires_at: new Date(now + UPLOAD_HANDLE_TTL_MS).toISOString(),
+          one_time_link: link,
+        };
+      } finally {
+        await release();
+      }
     },
   });
 }
