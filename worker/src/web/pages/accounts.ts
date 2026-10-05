@@ -82,10 +82,22 @@ async function render(env: Env, s: Session, notice?: string): Promise<Response> 
 ${bound.map((a) => controls.get(a.id) ?? "").join("\n")}</section>`;
   });
   const companionCsrf = await csrfToken(env, s, "POST", "/accounts", "companion");
+  const version = await companionVersion(env);
   const registrationCsrf = await csrfToken(env, s, "POST", "/accounts", "registration");
   const registrationOpen = await isRegistrationOpen(env.DB, Date.now());
   const body = `${notice ? `<p><strong>${escapeHtml(notice)}</strong></p>` : ""}
 ${rows.join("\n")}
+<section data-account="setup">
+<h2>Set up my Mac</h2>
+${companion ? "" : "<p><strong>First register the companion client below.</strong></p>"}
+<p>1. Open Terminal, paste this line and press Return. It installs the companion, makes the mail folders and connects Claude Code, Codex and Claude Desktop.</p>
+<pre>curl -fsSL https://${escapeHtml(env.WORKER_HOSTNAME)}/install.sh | sh</pre>
+<p>2. In Claude Desktop or claude.ai, open Settings, then Connectors, then Add custom connector, and paste:</p>
+<pre>https://${escapeHtml(env.WORKER_HOSTNAME)}/mcp</pre>
+<p>Files you want to send go in <code>Downloads/Mail/To Send</code>. Saved attachments arrive in <code>Downloads/Mail/Received</code>.</p>
+<p class="muted">Companion version ${version ? escapeHtml(version) : "not published yet"}. Running the line again updates it.</p>
+<p class="muted">One protection is lighter than a compiled helper would give: after saving a file, the companion re-checks the folder it saved into and refuses if that folder changed, rather than locking the folder during the save.</p>
+</section>
 <section data-account="companion">
 <h2>Local companion</h2>
 ${
@@ -240,3 +252,18 @@ export const accountsRoutes: Route[] = [
     },
   },
 ];
+
+/** The version the installer would fetch now, read from the Worker's own static assets (M6). */
+async function companionVersion(env: Env): Promise<string | null> {
+  try {
+    const r = await env.ASSETS.fetch(new Request(`https://${env.WORKER_HOSTNAME}/companion.version`));
+    if (!r.ok) {
+      await r.body?.cancel();
+      return null;
+    }
+    const v = (await r.text()).trim();
+    return /^\d+\.\d+\.\d+$/.test(v) ? v : null;
+  } catch {
+    return null;
+  }
+}

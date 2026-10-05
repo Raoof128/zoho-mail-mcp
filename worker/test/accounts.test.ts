@@ -202,4 +202,25 @@ describe("accounts page", () => {
     expect(again).toContain(id);
     expect(again).not.toContain('value="register_companion"');
   });
+
+  it("shows the one-line Mac setup, the connector URL and the published companion version", async () => {
+    const assets = {
+      fetch: (request: Request) =>
+        Promise.resolve(
+          new URL(request.url).pathname === "/companion.version"
+            ? new Response("1.2.3\n")
+            : new Response("missing", { status: 404 }),
+        ),
+    };
+    const b = new Browser(worker, testEnv({ ASSETS: assets }));
+    await b.login(g, { sub: "owner-sub", email: "owner@example.test" });
+    const html = await (await b.get("/accounts")).text();
+    const setup = html.split('data-account="setup"')[1]!.split("</section>")[0]!;
+    expect(setup).toContain("curl -fsSL https://zoho-mail-mcp.example.workers.dev/install.sh | sh");
+    expect(setup).toContain("https://zoho-mail-mcp.example.workers.dev/mcp");
+    expect(setup).toContain("1.2.3");
+    expect(setup).toContain("To Send");
+    expect(setup).toMatch(/re-checks the folder/);
+    expect(setup).not.toMatch(/\u2014/);
+  });
 });

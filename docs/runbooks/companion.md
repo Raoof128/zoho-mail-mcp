@@ -1,75 +1,91 @@
 # macOS companion
 
-The companion adds `list_roots`, `stage_file` and `save_attachment` to a local stdio MCP client. It requires Node 22.18+, macOS 26.6+, Xcode command-line tools, and local APFS/HFS roots. V1 refuses overwrites and missing destination subdirectories.
+The companion gives a local MCP client three tools: `list_roots`, `stage_file` and `save_attachment`. It is plain JavaScript run by Node (22.18 or later); there is no compiled helper, no code signing and no notarisation (spec D15). It moves files between named folders on the Mac and the Worker. It never sends mail itself.
 
-## Build and configure
+## Install (one line)
 
-From the repository root:
-
-```bash
-npm ci
-npm run verify
-npm run verify:native
-```
-
-Register the companion on the deployed Worker's Accounts page after a recent owner login. Copy its client ID, then configure the local helper:
+The owner first opens `https://mail-mcp.sarabisfinerugs.com.au/accounts`, signs in with Zoho, and clicks **Register the companion client** once. Then, in Terminal:
 
 ```bash
-node companion/src/cli.ts init \
-  --origin https://YOUR-WORKER-HOST \
-  --client-id YOUR-COMPANION-CLIENT-ID \
-  --read-root documents=/absolute/path/to/documents
-node companion/src/cli.ts login
+curl -fsSL https://mail-mcp.sarabisfinerugs.com.au/install.sh | sh
 ```
 
-`init` creates the default writable root at `~/Downloads/Mail`. Pass `--write-root /absolute/path` to choose another directory. Read roots are optional. Roots must not overlap each other or the private configuration/state directories. Initialization refuses to replace existing configuration.
+What the line does, in order:
 
-Login binds an ephemeral `127.0.0.1` listener before opening the browser. It validates PKCE state and the exact Worker issuer, then stores the staging credential in Keychain. The installed provider serves revocation at `/token`, as advertised in discovery.
+1. Checks this is a Mac. If Node 22.18 or later is missing, downloads the official Node.js 24.21.0 package from nodejs.org, checks its SHA-256 against the value pinned in the script and checks `pkgutil --check-signature` names `Developer ID Installer: Node.js Foundation (HX7739G8FX)`, then installs it (the Mac password is asked for).
+2. Downloads `companion.tgz` and `companion.sha256` once each from the Worker, and stops unless the downloaded file's SHA-256 matches. The exact file that was checked is the file installed.
+3. Creates `~/Downloads/Mail/To Send` and `~/Downloads/Mail/Received`, and installs into `~/Library/Application Support/zoho-mail-mcp/` (mode 700) with `npm install --prefix`, saving nothing else.
+4. Writes `bin/companion` there: a two-line script that runs the absolute Node path on the installed bundle. Claude Desktop and launchd start programs with a minimal PATH, so nothing depends on PATH.
+5. On a first install only: reads the companion's public client id from `/companion-client-id`, runs `companion init`, then `companion login`, which opens the browser for the Zoho sign-in and stores the staging credential in the login Keychain.
+6. `companion install-agent`: a login item (`au.com.sarabisfinerugs.mail-mcp.companion`) that runs `companion recover` once at each login. Recovery clears expired snapshots and finishes or flags interrupted saves.
+7. `companion configure-clients`: adds `zoho-mail` (the Worker, `https://HOST/mcp`) and `zoho-mail-companion` (`bin/companion serve`) to Claude Code at user scope and to Codex, skipping any already present and reporting a CLI that is not installed. Adds `zoho-mail-companion` to Claude Desktop's `claude_desktop_config.json`, keeping every other entry and writing a timestamped backup first. A Desktop settings file that does not parse is left untouched and reported.
 
-Configure the MCP client to run an absolute Node executable with an absolute path to `companion/src/cli.ts` and the argument `serve`. The process writes MCP messages to stdout and diagnostics to stderr. It does not need credential environment variables.
+Two steps stay manual because no file can do them: in Claude Desktop or claude.ai, **Settings, Connectors, Add custom connector**, paste `https://mail-mcp.sarabisfinerugs.com.au/mcp`; and in Codex, run `codex mcp login zoho-mail` once.
 
-## Tools
+## Folders and the outbox rule
 
-```json
-{
-  "account": "work",
-  "root": "documents",
-  "path": "report.pdf",
-  "mime": "application/pdf",
-  "idempotency_key": "report-revision-1"
-}
-```
+`init` configures these roots, which never sit inside one another (the companion refuses overlapping roots):
 
-Call `stage_file` with these arguments. If it returns an approval URL, approve in the Worker and repeat the same arguments. The repeated request uses the original snapshot even if the live file changed. A new explicit key requests a new snapshot. Completed transfers return their original handle; an expired handle requires a new explicit key and intent.
+| Root          | Folder                      | Access |
+| ------------- | --------------------------- | ------ |
+| `outbox`      | `~/Downloads/Mail/To Send`  | read   |
+| `attachments` | `~/Downloads/Mail/Received` | write  |
+| `desktop`     | `~/Desktop` (if present)    | read   |
+| `documents`   | `~/Documents` (if present)  | read   |
 
-```json
-{ "handle": "sh_REPLACE_WITH_RETURNED_HANDLE", "root": "attachments", "path": "report.pdf" }
-```
+The Worker stages a file from the root named exactly `outbox` without asking. A file from any other root needs approval in the browser first (`+outside_outbox`). So the plain rule for the owner is: put files to send in **To Send**. There is no `downloads` root: it would contain both mail folders.
 
-Call `save_attachment` with a real download handle. The parent directory must exist. The helper verifies size and SHA-256, writes and synchronizes a temporary file, publishes with an exclusive rename and records the receipt. Existing files remain untouched.
+Saving never overwrites: a file that already exists at the destination is left alone, and the destination's parent folder must already exist.
 
-A response with `state: published` and `acknowledged: false` means the local save succeeded but remote ACK is unconfirmed. Repeat the same save to recover the receipt and retry ACK. A `publication_unknown` result requires owner inspection; do not delete or replace the destination to force a retry.
+## Results to know
+
+- `state: published` with `acknowledged: false`: the file is saved locally and the Worker has not confirmed. Repeat the same save; it recovers the receipt and retries the confirmation.
+- `publication_unknown`: the companion cannot prove what is at the destination. Do not delete or replace the destination to force a retry. Inspect it, then see `debt` below.
+- `lock_busy`: another companion task held the lock for six minutes. Retry.
+
+### The one weaker guarantee (D15)
+
+The Swift helper opened files beneath a root atomically (`openat` with `O_RESOLVE_BENEATH`) and published with an exclusive atomic rename. Node has neither. The companion checks every folder between the root and the file is a real folder, opens the file with `O_NOFOLLOW`, publishes by hard link (which fails rather than replace an existing file), and afterwards re-checks the resolved parent. **verify-after-publish re-checks the parent; a rename race between the two checks is refused rather than detected atomically.** If the process dies between the link and removing the temporary name, recovery reports `publication_unknown` and the temporary file stays for inspection.
+
+## Debt
 
 ```bash
-node companion/src/cli.ts logout
+"$HOME/Library/Application Support/zoho-mail-mcp/bin/companion" debt
 ```
 
-Logout invalidates local credential use before attempting remote revocation. It reports whether the remote endpoint confirmed revocation.
+Lists saves that still hold capacity and prints, for each, the exact command that clears it, or why it cannot be cleared safely. Only a `publication_unknown` receipt whose temporary file is provably gone can be released by the owner.
 
-## Recovery and capacity
+## Log out
 
-The helper uses owner-only configuration at `~/.config/gmail-mcp/config.json` and state at `~/Library/Application Support/gmail-mcp/`. Keep these outside attachment roots. Do not unlink the lock file or edit the live SQLite database while a helper is running.
+```bash
+"$HOME/Library/Application Support/zoho-mail-mcp/bin/companion" logout
+```
 
-The helper reserves four snapshots/100 MiB, one temporary save/25 MiB, and at most 1,000 metadata records/16 MiB. Startup cleanup removes expired snapshots under the process lock. Recovery retains uncertain publication evidence and capacity charges. Back up the private state before manual investigation; removing the journal can destroy idempotency protection.
+Invalidates local use of the credential first, then asks the Worker to revoke it, and says whether revocation was confirmed.
 
-The Worker reserves 250 MiB per owner and 500 MiB globally, one upload/materialization slot, and bounded download and recovery-record capacity. Admission authority lasts fifteen minutes. An upload admitted before that deadline may finish within its own five-minute lease. Unknown R2 writes retain their charge after lease expiry. Before releasing such debt manually, quiesce relevant writers and verify deletion. Neither a successful delete nor an elapsed lifecycle TTL proves a delayed writer stopped.
+## Update
 
-Interrupted client registration uses a persisted attempt marker and a two-minute lease. The Accounts action reconciles a single matching provider client after lease expiry. An empty or ambiguous listing remains quarantined and must not trigger another creation. Legacy `pending` sentinels need owner investigation because they contain no reliable attempt marker. Marked, unfinalized clients cannot receive MCP scope.
+Run the install line again. It replaces the installed bundle and wrapper and leaves the configuration, the Keychain item, the journal and the folders as they are.
+
+## Uninstall
+
+```bash
+launchctl bootout "gui/$(id -u)/au.com.sarabisfinerugs.mail-mcp.companion"
+rm ~/Library/LaunchAgents/au.com.sarabisfinerugs.mail-mcp.companion.plist
+"$HOME/Library/Application Support/zoho-mail-mcp/bin/companion" logout
+rm -r "$HOME/Library/Application Support/zoho-mail-mcp" ~/.config/zoho-mail-mcp
+claude mcp remove --scope user zoho-mail; claude mcp remove --scope user zoho-mail-companion
+codex mcp remove zoho-mail; codex mcp remove zoho-mail-companion
+```
+
+Then remove the `zoho-mail-companion` entry from `~/Library/Application Support/Claude/claude_desktop_config.json` and the custom connector in Claude's Settings. The two mail folders are the owner's files and are not removed.
+
+## Private state and capacity
+
+Configuration: `~/.config/zoho-mail-mcp/config.json` (mode 600, written once). State: `~/Library/Application Support/zoho-mail-mcp/` (mode 700): `journal.sqlite` (WAL, full fsync), `snapshots/`, `companion.lock`. The staging credential is a login Keychain item, service `au.com.sarabisfinerugs.mail-mcp.companion.oauth.v1`, written through `security -i` on stdin so it never appears in a process list, and read back after every write.
+
+The companion reserves four snapshots or 100 MiB, one temporary save of 25 MiB, and at most 1,000 journal records or 16 MiB. Do not delete the lock file or edit the journal while a companion runs; removing the journal destroys idempotency protection.
 
 ## Verification boundary
 
-`npm run verify` runs formatting, type-aware lint, TypeScript checks and shared/Worker/companion tests. The Worker suite uses workerd and a synthetic Google service. A combined test drives the companion orchestration through real Worker OAuth/staging routes with a fake native port. The stdio tests exercise the SDK transport and launch the CLI directly in Node. The 25 MiB upload test checks stored size and digest.
-
-`npm run verify:native` runs real local filesystem/SQLite tests and builds the helper. Credential tests use an isolated store, so they do not write personal Keychain items.
-
-Before release, verify actual Keychain login/logout, installed Claude Code/Desktop approval flows, the target deployment and power-loss behavior on the intended volume. This implementation run did not deploy, send mail or claim those checks passed. The default Linux CI job covers TypeScript; native checks require a supported Mac.
+`npm run verify` runs the companion suite: the Node native port (configuration, journal, Keychain epochs, safe files including symlinked folders, receipts and crash recovery, the process lock, startup cleanup), the CLI under a temporary HOME, the launchd plist through `plutil -lint`, the bundle and its SHA-256, the Desktop config merge, and `install.sh` under `sh -n` and shellcheck. The real Keychain test runs with `ZMC_KEYCHAIN_TESTS=1` against a `.test` service. Gate G20 (M7) runs the install line end to end against the deployed Worker in a scratch HOME.
