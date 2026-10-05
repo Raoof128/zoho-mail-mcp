@@ -18,4 +18,6 @@
   "kv_namespaces": [{ "binding": "OAUTH_KV", "id": "local-dev" }],
   "triggers": { "crons": ["*/5 * * * *"] },
   "observability": { "enabled": true },
+  // Only the four installer files are served, and only through the Worker's allowlist in index.ts.
+  "assets": { "directory": "./public", "binding": "ASSETS", "run_worker_first": true },
 }

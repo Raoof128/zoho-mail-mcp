@@ -132,6 +132,8 @@ export type WorkerHandler = {
 };
 export type Worker = WorkerHandler & { oauthOptions: (env: Env) => OAuthProviderOptions<Env> };
 
+const INSTALLER_FILES = new Set(["/install.sh", "/companion.tgz", "/companion.sha256", "/companion.version"]);
+
 export function createWorker(deps: Deps = defaultDeps): Worker {
   return {
     fetch: async (request, env, ctx) => {
@@ -150,6 +152,10 @@ export function createWorker(deps: Deps = defaultDeps): Worker {
       if (new URL(request.url).pathname === "/healthz" && request.method === "GET")
         return stamp(Response.json({ status: ready ? "ready" : "maintenance" }, { status: ready ? 200 : 503 }));
       if (!ready) return stamp(Response.json({ error: "maintenance" }, { status: 503 }));
+      // The installer's files (M6), public by design: the one-line install fetches them. An explicit
+      // allowlist: assets run Worker-first, so nothing else in public/ is ever served.
+      if (request.method === "GET" && INSTALLER_FILES.has(new URL(request.url).pathname))
+        return stamp(await env.ASSETS.fetch(request));
       try {
         return stamp(await providerFor(env, deps).provider.fetch(request, env, ctx));
       } catch {
