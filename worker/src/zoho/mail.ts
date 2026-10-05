@@ -3,23 +3,78 @@ import type { Deps } from "../deps";
 import type { Env } from "../env";
 import { zohoJson, zohoStream, type ZohoAcct } from "./client";
 
-export const ListRow = z.object({
-  messageId: z.string(),
-  folderId: z.string(),
-  threadId: z.string().optional().default(""),
-  threadCount: z.number().optional().default(0),
-  fromAddress: z.string().optional().default(""),
-  toAddress: z.string().optional().default(""),
-  ccAddress: z.string().optional().default(""),
-  subject: z.string().optional().default(""),
-  summary: z.string().optional().default(""),
-  receivedTime: z.coerce.number().optional().default(0),
-  sentDateInGMT: z.coerce.number().optional().default(0),
-  status: z.string().optional().default("unread"),
-  flagid: z.union([z.string(), z.number()]).optional().default("flag_not_set"),
-  hasAttachment: z.union([z.number(), z.boolean()]).optional().default(0),
-  sender: z.string().optional().default(""),
-});
+const FLAG_BY_ID: Record<string, string> = { "0": "flag_not_set", "1": "info", "2": "important", "3": "followup" };
+/** Zoho escapes address and summary text in list rows (`&quot;rebecca&quot;&lt;rebecca@zylker.com&gt;`). */
+export function unescapeZoho(s: string): string {
+  return s
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;|&apos;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&#(\d{1,7});/g, (_, n: string) => String.fromCodePoint(Math.min(Number(n), 0x10ffff)))
+    .replace(/&amp;/g, "&");
+}
+/** A scalar field as a string; objects and arrays (never sent for these fields) read as absent. */
+const scalar = (v: unknown): string | undefined =>
+  typeof v === "string" || typeof v === "number" || typeof v === "boolean" || typeof v === "bigint"
+    ? String(v)
+    : undefined;
+const text = (v: unknown): string => unescapeZoho(scalar(v) ?? "");
+const addresses = (v: unknown): string => (v === "Not Provided" ? "" : text(v));
+/**
+ * The list page (messages/view) returns every field as a string ("status": "1", "hasAttachment": "0"); the search page
+ * returns numbers ("flagid": 2, "receivedtime" in lower case) and ids as JSON numbers, which lose precision past 2^53,
+ * so the exact ids are read from URI when present. Both shapes come from the saved official pages (2026-10-03);
+ * the meaning of list status "1" (read) is to be confirmed by the M0 probe.
+ */
+function normaliseRow(raw: unknown): unknown {
+  if (typeof raw !== "object" || raw === null) return raw;
+  const r = raw as Record<string, unknown>;
+  const fromUri = typeof r.URI === "string" ? /\/folders\/(\d+)\/messages\/(\d+)/.exec(r.URI) : null;
+  const id = scalar;
+  const thread = id(r.threadId);
+  const status = scalar(r.status) ?? "";
+  const flag = scalar(r.flagid) ?? "flag_not_set";
+  const att = r.hasAttachment;
+  return {
+    ...r,
+    messageId: fromUri?.[2] ?? id(r.messageId),
+    folderId: fromUri?.[1] ?? id(r.folderId),
+    threadId: thread === "0" ? "" : (thread ?? ""),
+    threadCount: Number(r.threadCount ?? 0) || 0,
+    fromAddress: addresses(r.fromAddress),
+    toAddress: addresses(r.toAddress),
+    ccAddress: addresses(r.ccAddress),
+    subject: text(r.subject),
+    summary: text(r.summary),
+    sender: text(r.sender),
+    receivedTime: Number(r.receivedTime ?? r.receivedtime ?? 0) || 0,
+    sentDateInGMT: Number(r.sentDateInGMT ?? 0) || 0,
+    status: status === "1" || status === "read" ? "read" : "unread",
+    flagid: FLAG_BY_ID[flag] ?? flag,
+    hasAttachment: att === true || att === 1 || att === "1" || att === "true" ? 1 : 0,
+  };
+}
+export const ListRow = z.preprocess(
+  normaliseRow,
+  z.object({
+    messageId: z.string().regex(/^\d{1,32}$/),
+    folderId: z.string().regex(/^\d{1,32}$/),
+    threadId: z.string(),
+    threadCount: z.number(),
+    fromAddress: z.string(),
+    toAddress: z.string(),
+    ccAddress: z.string(),
+    subject: z.string(),
+    summary: z.string(),
+    receivedTime: z.number(),
+    sentDateInGMT: z.number(),
+    status: z.enum(["read", "unread"]),
+    flagid: z.string(),
+    hasAttachment: z.union([z.literal(0), z.literal(1)]),
+    sender: z.string(),
+  }),
+);
 export type ZohoListRow = z.infer<typeof ListRow>;
 const rows = (x: unknown) => z.array(ListRow).parse(x);
 

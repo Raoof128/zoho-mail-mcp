@@ -142,6 +142,8 @@ export const GetThreadInput = z.object({
   thread_id: ZohoId,
   message_format: FormatArg,
   max_messages: z.number().int().min(1).max(200).default(25),
+  /** next_cursor from a previous get_thread: bodies resume at this message. */
+  cursor: ZohoId.optional(),
   include_body: z.boolean().default(true),
   body_char_limit: BodyCharLimit,
   total_body_char_limit: z.number().int().min(1).max(2_000_000).default(200_000),

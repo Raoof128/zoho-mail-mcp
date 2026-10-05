@@ -141,27 +141,60 @@ export class FakeZohoMail {
   get(accountId: string, messageId: string) {
     return this.messages.get(`${accountId}/${messageId}`);
   }
-  private listRow(m: Msg) {
+  /**
+   * Rows in Zoho's documented shapes (saved pages, 2026-10-03). The list page (messages/view, details) answers with
+   * strings ("status": "1", "hasAttachment": "0", escaped addresses, "Not Provided" for an empty Cc); the search page
+   * answers with numbers, a lower-case receivedtime, a numeric flagid and a URI carrying the exact ids. To details
+   * come back only when includeto=true.
+   */
+  private listRow(m: Msg, shape: "view" | "search" = "view", includeTo = true) {
+    const esc = (x: string) =>
+      x.replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const threadCount = [...this.messages.values()].filter(
+      (x) => x.accountId === m.accountId && x.threadId === m.threadId,
+    ).length;
+    const flagNum = { flag_not_set: 0, info: 1, important: 2, followup: 3 }[m.flagid];
+    if (shape === "search")
+      return {
+        URI: `https://mail.zoho.com.au/api/accounts/${m.accountId}/folders/${m.folderId}/messages/${m.messageId}`,
+        messageId: Number(m.messageId),
+        folderId: Number(m.folderId),
+        threadId: m.threadId ? Number(m.threadId) : 0,
+        threadCount,
+        fromAddress: m.fromAddress,
+        ...(includeTo ? { toAddress: esc(m.toAddress) } : {}),
+        ccAddress: m.ccAddress ? esc(m.ccAddress) : "Not Provided",
+        subject: m.subject,
+        summary: esc(m.summary),
+        receivedtime: m.receivedTime,
+        sentDateInGMT: m.sentDateInGMT,
+        status: m.status,
+        flagid: flagNum,
+        hasAttachment: m.hasAttachment,
+        sender: m.fromAddress,
+        size: m.content.length,
+        status2: "none",
+        priority: 3,
+      };
     return {
       messageId: m.messageId,
       folderId: m.folderId,
       threadId: m.threadId,
-      threadCount: [...this.messages.values()].filter((x) => x.accountId === m.accountId && x.threadId === m.threadId)
-        .length,
+      threadCount: String(threadCount),
       fromAddress: m.fromAddress,
-      toAddress: m.toAddress,
-      ccAddress: m.ccAddress,
+      ...(includeTo ? { toAddress: esc(m.toAddress) } : {}),
+      ccAddress: m.ccAddress ? esc(m.ccAddress) : "Not Provided",
       subject: m.subject,
-      summary: m.summary,
-      receivedTime: m.receivedTime,
-      sentDateInGMT: m.sentDateInGMT,
-      status: m.status,
+      summary: esc(m.summary),
+      receivedTime: String(m.receivedTime),
+      sentDateInGMT: String(m.sentDateInGMT),
+      status: m.status === "read" ? "1" : "0",
       flagid: m.flagid,
-      hasAttachment: m.hasAttachment,
+      hasAttachment: String(m.hasAttachment),
       sender: m.fromAddress,
-      size: m.content.length,
-      status2: "none",
-      priority: 3,
+      size: String(m.content.length),
+      status2: "0",
+      priority: "3",
     };
   }
   private err(status: number, errorCode: string, shape: "object" | "array" = "object") {
@@ -182,13 +215,14 @@ export class FakeZohoMail {
     }
     const url = new URL(req.url);
     const mine = [...this.messages.values()].filter((m) => m.accountId === accountId);
-    const page = (rows: Msg[]) => {
+    const includeTo = url.searchParams.get("includeto") === "true";
+    const page = (rows: Msg[], shape: "view" | "search" = "view") => {
       const start = Number(url.searchParams.get("start") ?? "1"),
         limit = Math.min(200, Number(url.searchParams.get("limit") ?? "10"));
       if (limit < 1 || Number(url.searchParams.get("limit") ?? "10") > 200) return this.err(400, "INVALID_PARAMETER");
       return Response.json({
         status: { code: 200, description: "success" },
-        data: rows.slice(start - 1, start - 1 + limit).map((m) => this.listRow(m)),
+        data: rows.slice(start - 1, start - 1 + limit).map((m) => this.listRow(m, shape, includeTo)),
       });
     };
     if (req.method === "GET" && path === "/folders")
@@ -231,8 +265,12 @@ export class FakeZohoMail {
         else if (k === "entire") rows = rows.filter((m) => (m.subject + m.content).toLowerCase().includes(v));
         else if (k === "has" && v === "attachment") rows = rows.filter((m) => m.hasAttachment === 1);
         else if (k === "newMails") rows = rows.filter((m) => m.status === "unread");
+        else if (k === "in") {
+          const f = this.ensureFolders(accountId).find((x) => x.folderName.toLowerCase() === v);
+          rows = rows.filter((m) => m.folderId === f?.folderId);
+        }
       }
-      return page(rows);
+      return page(rows, "search");
     }
     const detail = /^\/folders\/(\d+)\/messages\/(\d+)\/(details|content|header|attachmentinfo)$/.exec(path);
     if (req.method === "GET" && detail) {

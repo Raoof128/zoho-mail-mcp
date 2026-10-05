@@ -15,7 +15,7 @@ import {
 import type { Env } from "../env";
 import type { Deps } from "../deps";
 import { accountStub, BUDGETS } from "../zoho/account-do";
-import type { ZohoAcct } from "../zoho/client";
+import { ZohoApiError, type ZohoAcct } from "../zoho/client";
 import { folderByName, systemFolders, threadMessages } from "../zoho/folders";
 import * as mail from "../zoho/mail";
 import { messageView, type MessageView, type ZohoMessageRef } from "../zoho/messages";
@@ -50,20 +50,23 @@ const readPlan = (args: Record<string, unknown>, summary: string, ids: string[] 
   });
 };
 
+/** Zoho's answers for "not in this folder": anything else (403, 5xx after retries) is a real failure and surfaces. */
+const notHere = (e: unknown) => e instanceof ZohoApiError && (e.status === 404 || e.status === 400);
+
 export async function resolveRef(
   env: Env,
   deps: Deps,
   a: ZohoAcct,
   o: { message_id: string; folder_id?: string | undefined },
-): Promise<ZohoMessageRef> {
+): Promise<ZohoMessageRef & { row?: mail.ZohoListRow }> {
   if (o.folder_id) return { folderId: o.folder_id, messageId: o.message_id };
   const sys = await systemFolders(env, deps, a);
   for (const folderId of [sys.inbox, sys.sent, sys.drafts, sys.spam, sys.trash]) {
     try {
-      await mail.messageDetails(env, deps, a, folderId, o.message_id);
-      return { folderId, messageId: o.message_id };
+      const row = await mail.messageDetails(env, deps, a, folderId, o.message_id);
+      return { folderId, messageId: o.message_id, row };
     } catch (e) {
-      if (!(e instanceof McpError) || e.code !== "zoho_error") throw e;
+      if (!notHere(e)) throw e;
     }
   }
   throw new McpError(
@@ -80,7 +83,8 @@ export async function getMessage(
   format: MessageFormat,
   o = { bodyCharLimit: 20_000, includeBody: true },
 ): Promise<MessageView> {
-  const row = await mail.messageDetails(env, deps, a, ref.folderId, ref.messageId);
+  const row =
+    (ref as { row?: mail.ZohoListRow }).row ?? (await mail.messageDetails(env, deps, a, ref.folderId, ref.messageId));
   const headers =
     format === "MINIMAL" ? undefined : await mail.messageHeaders(env, deps, a, ref.folderId, ref.messageId);
   const content =
@@ -121,7 +125,10 @@ export function registerReadTools(server: McpServer, toolContext: (ctx: ServerCo
     plan: (_e, _t, _a, args) => readPlan(args, `Search messages: ${args.query}`),
     execute: async (e, d, run) => {
       const p = SearchMessagesInput.omit({ account: true }).parse(run.payload);
-      const key = p.folder ? `${p.query}::folder:${p.folder}` : p.query;
+      // Zoho's search syntax names a folder with in:<folder name>; a name with a space is quoted.
+      const key = p.folder
+        ? `${p.query}::in:${/\s/.test(p.folder) ? `"${p.folder.replace(/"/g, "")}"` : p.folder}`
+        : p.query;
       const rows = await mail.searchMessages(e, d, acct(run), {
         searchKey: key,
         start: p.start,
@@ -149,27 +156,42 @@ export function registerReadTools(server: McpServer, toolContext: (ctx: ServerCo
       const p = SearchThreadsInput.omit({ account: true }).parse(run.payload);
       const start = p.page_token ? Number(p.page_token) : 1;
       const rows = p.query
-        ? await mail.searchMessages(e, d, acct(run), { searchKey: p.query, start, limit: 200 })
-        : await mail.listMessages(e, d, acct(run), { start, limit: 200 });
-      const byThread = new Map<string, mail.ZohoListRow>();
-      for (const r of rows) {
+        ? await mail.searchMessages(e, d, acct(run), { searchKey: p.query, start, limit: 200, includeto: true })
+        : await mail.listMessages(e, d, acct(run), { start, limit: 200, includeto: true });
+      // Rows come newest first. Threads are taken in order of first appearance until `limit` distinct threads; the
+      // next page starts at the first row of the next thread, so nothing between pages is skipped (final review I4).
+      const order: string[] = [];
+      const newest = new Map<string, mail.ZohoListRow>();
+      let nextStart: number | null = null;
+      for (let i = 0; i < rows.length; i++) {
+        const r = rows[i]!;
         const k = r.threadId || r.messageId;
-        const prev = byThread.get(k);
-        if (!prev || r.receivedTime > prev.receivedTime) byThread.set(k, r);
+        if (!newest.has(k)) {
+          if (order.length === p.limit) {
+            nextStart = start + i;
+            break;
+          }
+          order.push(k);
+          newest.set(k, r);
+        } else if (r.receivedTime > newest.get(k)!.receivedTime) newest.set(k, r);
       }
-      const threads = [...byThread.values()].slice(0, p.limit).map((r) => ({
-        id: r.threadId || r.messageId,
-        message_count: r.threadCount,
-        newest: messageView(r, { format: "METADATA_ONLY", bodyCharLimit: 0, includeBody: false }),
-      }));
-      return { threads, ...(rows.length === 200 ? { next_page_token: String(start + 200) } : {}) };
+      if (nextStart === null && rows.length === 200) nextStart = start + 200;
+      const threads = order.map((k) => {
+        const r = newest.get(k)!;
+        return {
+          id: k,
+          message_count: r.threadCount,
+          newest: messageView(r, { format: "METADATA_ONLY", bodyCharLimit: 0, includeBody: false }),
+        };
+      });
+      return { threads, ...(nextStart !== null ? { next_page_token: String(nextStart) } : {}) };
     },
   });
   defineTool(server, toolContext, env, {
     name: "get_thread",
     version: 1,
     description:
-      `A thread's messages across folders, one call for metadata. With a body format, at most ${BUDGETS.bodies} bodies per call; next_cursor continues. Thread messages carry bodies but not threading headers or attachment lists: use get_message for those.` +
+      `A thread's messages across folders, one call for metadata. With a body format, at most ${BUDGETS.bodies} bodies per call; pass next_cursor back as cursor to get the rest. Thread messages carry bodies but not threading headers or attachment lists: use get_message for those.` +
       ADDRESSING,
     input: GetThreadInput,
     annotations: ro,
@@ -188,7 +210,14 @@ export function registerReadTools(server: McpServer, toolContext: (ctx: ServerCo
       let budget = p.total_body_char_limit;
       let cursor: string | undefined;
       const messages: MessageView[] = [];
+      // With a cursor from a previous call, messages before it already had their bodies: metadata only until it.
+      let resumed = p.cursor === undefined || !rows.some((r) => r.messageId === p.cursor);
       for (const r of rows) {
+        if (!resumed && r.messageId === p.cursor) resumed = true;
+        if (!resumed) {
+          messages.push(messageView(r, { format: "METADATA_ONLY", bodyCharLimit: 0, includeBody: false }));
+          continue;
+        }
         if (!wantBodies || budget <= 0 || !(await stub.budget(a.toolCallId, "bodies", 1))) {
           if (wantBodies && !cursor) cursor = r.messageId;
           messages.push(messageView(r, { format: "METADATA_ONLY", bodyCharLimit: 0, includeBody: false }));
@@ -251,7 +280,7 @@ export function registerReadTools(server: McpServer, toolContext: (ctx: ServerCo
       const a = acct(run);
       const sys = await systemFolders(e, d, a);
       const start = p.page_token ? Number(p.page_token) : 1;
-      const rows = await mail.listMessages(e, d, a, { folderId: sys.drafts, start, limit: p.limit });
+      const rows = await mail.listMessages(e, d, a, { folderId: sys.drafts, start, limit: p.limit, includeto: true });
       return {
         drafts: rows.map((r) => ({
           id: r.messageId,

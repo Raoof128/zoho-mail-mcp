@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
 import { messageView, splitAddressList, htmlToText } from "../src/zoho/messages";
+import { ListRow } from "../src/zoho/mail";
 
-const row = {
+const row = ListRow.parse({
   messageId: "9",
   folderId: "1",
   threadId: "7",
@@ -17,7 +18,7 @@ const row = {
   flagid: "important",
   hasAttachment: 1,
   sender: "Carla",
-};
+});
 
 describe("messageView", () => {
   it("keeps Gmail field names and adds folder, flag, archived, read", () => {

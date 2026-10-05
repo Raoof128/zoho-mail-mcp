@@ -50,20 +50,47 @@ export function splitAddressList(s: string): string[] {
   return out;
 }
 
+const BREAK_TAGS = /^(br|\/p|\/div|\/li|\/tr|\/h[1-6])$/;
+const ENTITIES: Record<string, string> = { nbsp: " ", amp: "&", lt: "<", gt: ">", quot: '"', apos: "'", "#39": "'" };
+/**
+ * Linear-time HTML to text. Every search moves forward from the current position, and an opener with no closer ends
+ * the scan, so hostile mail (half a megabyte of "<style" or "<") costs one pass instead of a rescan per opener
+ * (final review of M2, I2).
+ */
 export function htmlToText(html: string): string {
-  return html
-    .replace(/<\s*(br|\/p|\/div|\/li|\/tr|\/h[1-6])\s*\/?>/gi, "\n")
-    .replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gi, "")
-    .replace(/<[^>]+>/g, "")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
+  const lower = html.toLowerCase();
+  let out = "";
+  let i = 0;
+  while (i < html.length) {
+    const lt = html.indexOf("<", i);
+    if (lt === -1) {
+      out += html.slice(i);
+      break;
+    }
+    out += html.slice(i, lt);
+    const gt = html.indexOf(">", lt + 1);
+    if (gt === -1) break; // an unclosed tag: the rest is markup, not text
+    const name = /^\s*(\/?[a-z0-9]+)/.exec(lower.slice(lt + 1, Math.min(gt, lt + 40)))?.[1] ?? "";
+    if (name === "style" || name === "script") {
+      const close = lower.indexOf(`</${name}`, gt + 1);
+      if (close === -1) break; // unterminated style or script: drop the rest
+      const end = html.indexOf(">", close);
+      i = end === -1 ? html.length : end + 1;
+      continue;
+    }
+    if (BREAK_TAGS.test(name)) out += "\n";
+    i = gt + 1;
+  }
+  return out
+    .replace(/&(#\d{1,7}|[a-z]+);/gi, (m, e: string) => {
+      const k = e.toLowerCase();
+      if (k in ENTITIES) return ENTITIES[k]!;
+      if (k.startsWith("#")) return String.fromCodePoint(Math.min(Number(k.slice(1)), 0x10ffff));
+      return m;
+    })
     .split("\n")
     .map((l) => l.trim())
-    .filter((l, i, a) => l !== "" || (i > 0 && a[i - 1] !== ""))
+    .filter((l, idx, a) => l !== "" || (idx > 0 && a[idx - 1] !== ""))
     .join("\n")
     .trim();
 }

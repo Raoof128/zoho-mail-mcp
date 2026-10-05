@@ -14,10 +14,10 @@ export type SystemFolders = {
   archive: string | null;
 };
 const TTL = 10 * 60_000;
+/** A system folder is matched on folderType first, so a custom folder named "Sent" cannot shadow the real one. */
 const pick = (fs: ZohoFolder[], name: string) =>
-  fs.find(
-    (f) => f.folderName.toLowerCase() === name.toLowerCase() || f.folderType?.toLowerCase() === name.toLowerCase(),
-  );
+  fs.find((f) => f.folderType?.toLowerCase() === name.toLowerCase()) ??
+  fs.find((f) => f.folderName.toLowerCase() === name.toLowerCase());
 
 export async function systemFolders(env: Env, deps: Deps, acct: ZohoAcct): Promise<SystemFolders> {
   const stub = accountStub(env, acct.accountId);
@@ -58,5 +58,6 @@ export function threadMessages(
     limit: Math.min(200, limit),
     includesent: true,
     includearchive: true,
+    includeto: true,
   });
 }
