@@ -12,10 +12,16 @@ export async function zohoFixture() {
     Z = `19100${n}`;
   const z = await FakeZoho.create();
   const e = testEnv();
+  // Tools address the account by its slot name, as a real connect stores it. D1 rows persist across cases in a file
+  // and aliases are unique per user, so the previous case's account steps aside first.
+  await e.DB.prepare(
+    "UPDATE accounts SET alias = 'old-' || id, status = 'revoked', is_default = 0 WHERE user_id = 'u' AND alias = 'sarabi'",
+  ).run();
   await seedUserAndAccount(e.DB, {
     userId: "u",
     accountId: id,
-    alias: `sarabi${n}`,
+    alias: "sarabi",
+    isDefault: true,
     slot: "sarabi",
     sendAs: ["sarabi@example.test"],
     zohoAccountId: Z,

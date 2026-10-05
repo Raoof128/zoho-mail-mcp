@@ -415,8 +415,9 @@ describe("attach_from_message", () => {
         { filename: "notes.txt", mime: "text/plain", bytes: new Uint8Array(20) },
       ],
     });
-    const meta = (await call("get_message", { account: "uni", message_id: m.id })).result.message.attachments;
-    const slides = meta.find((a: { filename: string }) => a.filename === "slides.pdf");
+    // get_message reads Zoho since M2 Task 2.4; this Gmail-era test reads the part id from the Gmail double instead.
+    const parts = (gm().messages.get(m.id)!.payload.parts ?? []) as { partId: string; filename: string }[];
+    const slides = { part_id: parts.find((a) => a.filename === "slides.pdf")!.partId };
 
     const r = await call("reply", {
       account: "uni",

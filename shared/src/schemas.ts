@@ -139,7 +139,7 @@ export const SearchThreadsInput = z.object({
 });
 export const GetThreadInput = z.object({
   account: AccountAlias.optional(),
-  thread_id: LegacyGmailId,
+  thread_id: ZohoId,
   message_format: FormatArg,
   max_messages: z.number().int().min(1).max(200).default(25),
   include_body: z.boolean().default(true),
@@ -148,7 +148,7 @@ export const GetThreadInput = z.object({
 });
 export const GetMessageInput = z.object({
   account: AccountAlias.optional(),
-  message_id: LegacyGmailId,
+  message_id: ZohoId,
   message_format: FormatArg,
   include_body: z.boolean().default(true),
   body_char_limit: BodyCharLimit,
@@ -160,7 +160,7 @@ export const ListDraftsInput = z.object({
 });
 export const GetDraftInput = z.object({
   account: AccountAlias.optional(),
-  draft_id: LegacyGmailId,
+  draft_id: ZohoId,
   message_format: FormatArg,
   body_char_limit: BodyCharLimit,
 });

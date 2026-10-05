@@ -1,44 +1,47 @@
 import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
 import { McpError } from "@zoho-mail-mcp/shared/errors";
 import {
-  DownloadAttachmentInput,
-  DownloadAttachmentPayload,
   GetDraftInput,
   GetMessageInput,
   GetThreadInput,
   ListDraftsInput,
+  ListFoldersInput,
   ListLabelsInput,
+  SearchMessagesInput,
   SearchThreadsInput,
+  ZohoId,
   type MessageFormat,
 } from "@zoho-mail-mcp/shared/schemas";
 import type { Env } from "../env";
-import { fromB64url } from "../crypto/random";
-import { gmailJson } from "../google/gmail";
-import {
-  findAttachment,
-  gmailFormatFor,
-  messageAttachments,
-  messageView,
-  partData,
-  type GmailDraft,
-  type GmailLabel,
-  type GmailThread,
-} from "../google/messages";
-import { LIMITS } from "../policy/limits";
-import { withMaterialization } from "../staging/materialization";
-import { ingest } from "../staging/store";
-import { getMessage } from "./compose";
+import type { Deps } from "../deps";
+import { accountStub, BUDGETS } from "../zoho/account-do";
+import type { ZohoAcct } from "../zoho/client";
+import { folderByName, systemFolders, threadMessages } from "../zoho/folders";
+import * as mail from "../zoho/mail";
+import { messageView, type MessageView, type ZohoMessageRef } from "../zoho/messages";
 import { defineTool, type Plan } from "./define";
 import type { ExecRun, ToolContext } from "./gate";
-import { labelView } from "./labels";
 
 const fmt = (f: MessageFormat | "MESSAGE_FORMAT_UNSPECIFIED"): MessageFormat =>
   f === "MESSAGE_FORMAT_UNSPECIFIED" ? "PLAIN_TEXT" : f;
-const acct = (run: ExecRun) => ({ userId: run.userId, accountId: run.account.id });
+/**
+ * The account DO keys per-call budgets by toolCallId, so the id must be unique per tool invocation and stable within it.
+ * Read tools have no operation row; a fresh id is drawn once per run and remembered for every Zoho call the run makes.
+ */
+const callIds = new WeakMap<ExecRun, string>();
+const acct = (run: ExecRun): ZohoAcct => {
+  let id = callIds.get(run);
+  if (!id) {
+    id = run.operationId ?? run.pendingId ?? crypto.randomUUID();
+    callIds.set(run, id);
+  }
+  return { userId: run.userId, accountId: run.account.id, toolCallId: id };
+};
 const ro = { readOnlyHint: true, destructiveHint: false, openWorldHint: false } as const;
-/** A read's payload is its arguments; nothing is staged, so the build is immediate. */
+const ADDRESSING =
+  " Results carry id and folder_id; pass both back to any tool that takes a message. A bare message_id is resolved by probing Inbox, Sent, Drafts, Spam and Trash, which costs up to 5 of the 10 Zoho calls a tool call may make.";
 const readPlan = (args: Record<string, unknown>, summary: string, ids: string[] = []): Promise<Plan> => {
-  const { account: _account, ...payload } = args;
+  const { account: _a, ...payload } = args;
   return Promise.resolve({
     modifiers: [],
     summary,
@@ -47,15 +50,96 @@ const readPlan = (args: Record<string, unknown>, summary: string, ids: string[] 
   });
 };
 
-/**
- * Reads pass through the same gate as writes: the policy engine may deny or ask for any action, and
- * every call leaves one intent row. They are not journaled because they change nothing outside.
- */
+export async function resolveRef(
+  env: Env,
+  deps: Deps,
+  a: ZohoAcct,
+  o: { message_id: string; folder_id?: string | undefined },
+): Promise<ZohoMessageRef> {
+  if (o.folder_id) return { folderId: o.folder_id, messageId: o.message_id };
+  const sys = await systemFolders(env, deps, a);
+  for (const folderId of [sys.inbox, sys.sent, sys.drafts, sys.spam, sys.trash]) {
+    try {
+      await mail.messageDetails(env, deps, a, folderId, o.message_id);
+      return { folderId, messageId: o.message_id };
+    } catch (e) {
+      if (!(e instanceof McpError) || e.code !== "zoho_error") throw e;
+    }
+  }
+  throw new McpError(
+    "handle_invalid",
+    `handle_invalid: message ${o.message_id} not found in any system folder; pass folder_id`,
+  );
+}
+
+export async function getMessage(
+  env: Env,
+  deps: Deps,
+  a: ZohoAcct,
+  ref: ZohoMessageRef,
+  format: MessageFormat,
+  o = { bodyCharLimit: 20_000, includeBody: true },
+): Promise<MessageView> {
+  const row = await mail.messageDetails(env, deps, a, ref.folderId, ref.messageId);
+  const headers =
+    format === "MINIMAL" ? undefined : await mail.messageHeaders(env, deps, a, ref.folderId, ref.messageId);
+  const content =
+    o.includeBody && format !== "METADATA_ONLY" && format !== "MINIMAL" && format !== "RAW"
+      ? (await mail.messageContent(env, deps, a, ref.folderId, ref.messageId)).content
+      : undefined;
+  const raw = format === "RAW" ? await mail.originalMessage(env, deps, a, ref.messageId) : undefined;
+  const attachments = row.hasAttachment
+    ? (await mail.attachmentInfo(env, deps, a, ref.folderId, ref.messageId)).map((x) => ({
+        attachment_id: x.attachmentId,
+        filename: x.attachmentName,
+        size: x.attachmentSize,
+        mime: null,
+      }))
+    : [];
+  return messageView(row, {
+    content,
+    headers,
+    raw,
+    format,
+    bodyCharLimit: o.bodyCharLimit,
+    includeBody: o.includeBody,
+    attachments,
+  });
+}
+
 export function registerReadTools(server: McpServer, toolContext: (ctx: ServerContext) => ToolContext, env: Env): void {
+  defineTool(server, toolContext, env, {
+    name: "search_messages",
+    version: 1,
+    description:
+      "Search messages with Zoho syntax: param:value pairs joined by '::' (entire, content, sender, to, cc, subject, fileName, fileContent, has:attachment; quotes for phrases). Flat results, newest first, up to 200 per page via start/limit." +
+      ADDRESSING,
+    input: SearchMessagesInput,
+    annotations: ro,
+    action: "read.search",
+    journal: false,
+    plan: (_e, _t, _a, args) => readPlan(args, `Search messages: ${args.query}`),
+    execute: async (e, d, run) => {
+      const p = SearchMessagesInput.omit({ account: true }).parse(run.payload);
+      const key = p.folder ? `${p.query}::folder:${p.folder}` : p.query;
+      const rows = await mail.searchMessages(e, d, acct(run), {
+        searchKey: key,
+        start: p.start,
+        limit: p.limit,
+        includeto: p.include_to,
+      });
+      return {
+        messages: rows.map((r) => messageView(r, { format: "METADATA_ONLY", bodyCharLimit: 0, includeBody: false })),
+        next_start: rows.length === p.limit ? p.start + p.limit : null,
+      };
+    },
+  });
   defineTool(server, toolContext, env, {
     name: "search_threads",
     version: 1,
-    description: "Search threads with Gmail query syntax. Paginated; limit at most 50.",
+    description:
+      "Search and group by thread: one row per thread with its newest message. page_token is the Zoho start offset." +
+      ADDRESSING,
     input: SearchThreadsInput,
     annotations: ro,
     action: "read.search",
@@ -63,29 +147,30 @@ export function registerReadTools(server: McpServer, toolContext: (ctx: ServerCo
     plan: (_e, _t, _a, args) => readPlan(args, `Search threads: ${args.query ?? "(all)"}`),
     execute: async (e, d, run) => {
       const p = SearchThreadsInput.omit({ account: true }).parse(run.payload);
-      const res = await gmailJson<{
-        threads?: { id: string; snippet?: string }[];
-        nextPageToken?: string;
-        resultSizeEstimate?: number;
-      }>(e, d, acct(run), {
-        method: "GET",
-        path: "threads",
-        query: { q: p.query, maxResults: p.limit, pageToken: p.page_token, includeSpamTrash: false },
-        retry: "safe",
-      });
-      return {
-        threads: (res.threads ?? []).map((t) => ({ id: t.id, snippet: t.snippet ?? "" })),
-        result_size_estimate: res.resultSizeEstimate ?? 0,
-        ...(res.nextPageToken ? { next_page_token: res.nextPageToken } : {}),
-      };
+      const start = p.page_token ? Number(p.page_token) : 1;
+      const rows = p.query
+        ? await mail.searchMessages(e, d, acct(run), { searchKey: p.query, start, limit: 200 })
+        : await mail.listMessages(e, d, acct(run), { start, limit: 200 });
+      const byThread = new Map<string, mail.ZohoListRow>();
+      for (const r of rows) {
+        const k = r.threadId || r.messageId;
+        const prev = byThread.get(k);
+        if (!prev || r.receivedTime > prev.receivedTime) byThread.set(k, r);
+      }
+      const threads = [...byThread.values()].slice(0, p.limit).map((r) => ({
+        id: r.threadId || r.messageId,
+        message_count: r.threadCount,
+        newest: messageView(r, { format: "METADATA_ONLY", bodyCharLimit: 0, includeBody: false }),
+      }));
+      return { threads, ...(rows.length === 200 ? { next_page_token: String(start + 200) } : {}) };
     },
   });
-
   defineTool(server, toolContext, env, {
     name: "get_thread",
     version: 1,
     description:
-      "A thread and its messages. PLAIN_TEXT by default; bodies cut at body_char_limit and under total_body_char_limit across the thread; at most max_messages.",
+      `A thread's messages across folders, one call for metadata. With a body format, at most ${BUDGETS.bodies} bodies per call; next_cursor continues. Thread messages carry bodies but not threading headers or attachment lists: use get_message for those.` +
+      ADDRESSING,
     input: GetThreadInput,
     annotations: ro,
     action: "read.message",
@@ -94,57 +179,68 @@ export function registerReadTools(server: McpServer, toolContext: (ctx: ServerCo
     execute: async (e, d, run) => {
       const p = GetThreadInput.omit({ account: true }).parse(run.payload);
       const f = fmt(p.message_format);
-      const q = gmailFormatFor(f);
-      const t = await gmailJson<GmailThread>(e, d, acct(run), {
-        method: "GET",
-        path: `threads/${encodeURIComponent(p.thread_id)}`,
-        query: { format: q.format, metadataHeaders: q.metadataHeaders },
-        retry: "safe",
-      });
-      const all = t.messages ?? [];
-      const shown = all.slice(0, p.max_messages);
+      const a = acct(run);
+      const rows = (await threadMessages(e, d, a, p.thread_id, p.max_messages)).sort(
+        (x, y) => x.receivedTime - y.receivedTime,
+      );
+      const wantBodies = p.include_body && f !== "METADATA_ONLY" && f !== "MINIMAL";
+      const stub = accountStub(e, a.accountId);
       let budget = p.total_body_char_limit;
-      let omitted = 0;
-      const messages = shown.map((m) => {
-        const view = messageView(m, {
-          format: f,
-          bodyCharLimit: Math.min(p.body_char_limit, Math.max(budget, 0)),
-          includeBody: p.include_body && budget > 0,
-        });
-        if (p.include_body && budget <= 0) omitted++;
-        budget -= (view.plaintext_body?.length ?? 0) + (view.html_body?.length ?? 0) + (view.raw?.length ?? 0);
-        return view;
-      });
-      return { thread: { id: t.id, messages, messages_omitted: all.length - shown.length, bodies_omitted: omitted } };
+      let cursor: string | undefined;
+      const messages: MessageView[] = [];
+      for (const r of rows) {
+        if (!wantBodies || budget <= 0 || !(await stub.budget(a.toolCallId, "bodies", 1))) {
+          if (wantBodies && !cursor) cursor = r.messageId;
+          messages.push(messageView(r, { format: "METADATA_ONLY", bodyCharLimit: 0, includeBody: false }));
+          continue;
+        }
+        // One Zoho call per body (content, or the original for RAW): the list row already holds the metadata, so
+        // 8 bodies plus the list stay inside the 10-request budget. Headers and attachment lists are get_message's.
+        const limit = Math.min(p.body_char_limit, budget);
+        const v =
+          f === "RAW"
+            ? messageView(r, {
+                raw: await mail.originalMessage(e, d, a, r.messageId),
+                format: f,
+                bodyCharLimit: limit,
+                includeBody: true,
+              })
+            : messageView(r, {
+                content: (await mail.messageContent(e, d, a, r.folderId, r.messageId)).content,
+                format: f,
+                bodyCharLimit: limit,
+                includeBody: true,
+              });
+        budget -= (v.plaintext_body?.length ?? 0) + (v.html_body?.length ?? 0) + (v.raw?.length ?? 0);
+        messages.push(v);
+      }
+      return { thread: { id: p.thread_id, messages, ...(cursor ? { next_cursor: cursor } : {}) } };
     },
   });
-
   defineTool(server, toolContext, env, {
     name: "get_message",
     version: 1,
-    description: "One message. Attachments are listed as metadata; use download_attachment for bytes.",
-    input: GetMessageInput,
+    description: "One message with headers and attachment metadata." + ADDRESSING,
+    input: GetMessageInput.extend({ folder_id: ZohoId.optional() }),
     annotations: ro,
     action: "read.message",
     journal: false,
     plan: (_e, _t, _a, args) => readPlan(args, `Get message ${args.message_id}`, [args.message_id]),
     execute: async (e, d, run) => {
-      const p = GetMessageInput.omit({ account: true }).parse(run.payload);
-      const f = fmt(p.message_format);
+      const p = GetMessageInput.omit({ account: true }).extend({ folder_id: ZohoId.optional() }).parse(run.payload);
+      const a = acct(run);
       return {
-        message: messageView(await getMessage(e, d, acct(run), p.message_id, f), {
-          format: f,
+        message: await getMessage(e, d, a, await resolveRef(e, d, a, p), fmt(p.message_format), {
           bodyCharLimit: p.body_char_limit,
           includeBody: p.include_body,
         }),
       };
     },
   });
-
   defineTool(server, toolContext, env, {
     name: "list_drafts",
     version: 1,
-    description: "List drafts, optionally filtered by a Gmail query. Paginated.",
+    description: "Drafts, newest first (the Drafts folder listing)." + ADDRESSING,
     input: ListDraftsInput,
     annotations: ro,
     action: "read.message",
@@ -152,26 +248,23 @@ export function registerReadTools(server: McpServer, toolContext: (ctx: ServerCo
     plan: (_e, _t, _a, args) => readPlan(args, "List drafts"),
     execute: async (e, d, run) => {
       const p = ListDraftsInput.omit({ account: true }).parse(run.payload);
-      const res = await gmailJson<{
-        drafts?: { id: string; message: { id: string; threadId: string } }[];
-        nextPageToken?: string;
-      }>(e, d, acct(run), {
-        method: "GET",
-        path: "drafts",
-        query: { maxResults: p.limit, pageToken: p.page_token },
-        retry: "safe",
-      });
+      const a = acct(run);
+      const sys = await systemFolders(e, d, a);
+      const start = p.page_token ? Number(p.page_token) : 1;
+      const rows = await mail.listMessages(e, d, a, { folderId: sys.drafts, start, limit: p.limit });
       return {
-        drafts: (res.drafts ?? []).map((x) => ({ id: x.id, message_id: x.message.id, thread_id: x.message.threadId })),
-        ...(res.nextPageToken ? { next_page_token: res.nextPageToken } : {}),
+        drafts: rows.map((r) => ({
+          id: r.messageId,
+          message: messageView(r, { format: "METADATA_ONLY", bodyCharLimit: 0, includeBody: false }),
+        })),
+        ...(rows.length === p.limit ? { next_page_token: String(start + p.limit) } : {}),
       };
     },
   });
-
   defineTool(server, toolContext, env, {
     name: "get_draft",
     version: 1,
-    description: "One draft with its message.",
+    description: "One draft by its message id in the Drafts folder.",
     input: GetDraftInput,
     annotations: ro,
     action: "read.message",
@@ -179,122 +272,54 @@ export function registerReadTools(server: McpServer, toolContext: (ctx: ServerCo
     plan: (_e, _t, _a, args) => readPlan(args, `Get draft ${args.draft_id}`, [args.draft_id]),
     execute: async (e, d, run) => {
       const p = GetDraftInput.omit({ account: true }).parse(run.payload);
-      const f = fmt(p.message_format);
-      const dr = await gmailJson<GmailDraft>(e, d, acct(run), {
-        method: "GET",
-        path: `drafts/${encodeURIComponent(p.draft_id)}`,
-        query: { format: gmailFormatFor(f).format },
-        retry: "safe",
-      });
+      const a = acct(run);
+      const sys = await systemFolders(e, d, a);
       return {
         draft: {
-          id: dr.id,
-          message: messageView(dr.message, { format: f, bodyCharLimit: p.body_char_limit, includeBody: true }),
+          id: p.draft_id,
+          message: await getMessage(e, d, a, { folderId: sys.drafts, messageId: p.draft_id }, fmt(p.message_format), {
+            bodyCharLimit: p.body_char_limit,
+            includeBody: true,
+          }),
         },
       };
     },
   });
-
   defineTool(server, toolContext, env, {
     name: "list_labels",
     version: 1,
-    description: "All labels. System labels are read-only.",
+    description: "All labels (Zoho tags) with colours.",
     input: ListLabelsInput,
     annotations: ro,
     action: "read.message",
     journal: false,
     plan: () => readPlan({}, "List labels"),
     execute: async (e, d, run) => ({
-      labels: (
-        (await gmailJson<{ labels?: GmailLabel[] }>(e, d, acct(run), { method: "GET", path: "labels", retry: "safe" }))
-          .labels ?? []
-      ).map(labelView),
+      labels: (await mail.listLabels(e, d, acct(run))).map((l) => ({
+        id: l.labelId,
+        name: l.displayName,
+        color: l.color ?? null,
+      })),
     }),
   });
-
   defineTool(server, toolContext, env, {
-    name: "download_attachment",
+    name: "list_folders",
     version: 1,
     description:
-      "Fetch one attachment into staging by part_id and return a handle for the local companion to collect. Bytes never enter the result. 25 MB ceiling. This handle cannot be attached to a send: to put a file from this mailbox on a message, use attach_from_message on send_message or reply instead. Prefer part_id, since Gmail re-issues attachment_id on every fetch.",
-    input: DownloadAttachmentInput,
-    annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: false },
-    action: "read.attachment",
+      "All folders with ids; system folders are Inbox, Drafts, Sent, Spam, Trash and, on newer accounts, Archive.",
+    input: ListFoldersInput,
+    annotations: ro,
+    action: "read.message",
     journal: false,
-    plan: (_e, _t, _a, args) =>
-      readPlan(
-        args,
-        `Download attachment ${args.attachment_id ?? `part ${args.part_id}`} of message ${args.message_id}`,
-        [args.message_id],
-      ),
-    execute: async (e, d, run) =>
-      withMaterialization(
-        e,
-        async (materialization) => {
-          const p = DownloadAttachmentPayload.parse(run.payload);
-          // Spec 3.7: the part's size comes from the message's part tree (format=full carries sizes, not
-          // bytes for external parts), and anything over the ceiling is refused before attachments.get.
-          const m = await getMessage(e, d, acct(run), p.message_id, "PLAIN_TEXT");
-          const meta = p.attachment_id
-            ? findAttachment(m, { attachmentId: p.attachment_id })
-            : findAttachment(m, { partId: p.part_id! });
-          if (!meta) {
-            // Gmail re-issues attachmentId on every fetch, so an id the caller read from an earlier
-            // get_message never matches the message this tool fetches for itself. Measured against
-            // real Gmail: two consecutive reads of one message gave two different 404-character ids.
-            // part_id is stable, so the refusal names the ones this message actually has rather than
-            // leaving a caller to retry an id that cannot ever work.
-            const available = messageAttachments(m)
-              .map((a) => `${a.part_id} (${a.filename})`)
-              .join(", ");
-            const why = p.attachment_id
-              ? "Gmail re-issues attachment ids on every fetch, so an id from an earlier read cannot resolve here; use part_id"
-              : "no part with that id";
-            throw new McpError(
-              "handle_invalid",
-              `handle_invalid: no such attachment on message ${p.message_id}. ${why}. Available: ${available || "none"}`,
-            );
-          }
-          if (meta.size > LIMITS.stagedFileBytes)
-            throw new McpError(
-              "limit_exceeded",
-              `limit_exceeded: attachment is ${meta.size} bytes, ceiling ${LIMITS.stagedFileBytes}`,
-            );
-          let bytes: Uint8Array;
-          if (meta.attachment_id) {
-            const body = await gmailJson<{ data?: string }>(e, d, acct(run), {
-              method: "GET",
-              path: `messages/${encodeURIComponent(p.message_id)}/attachments/${encodeURIComponent(meta.attachment_id)}`,
-              retry: "safe",
-            });
-            if (!body.data) throw new McpError("handle_invalid", "handle_invalid: attachment body empty");
-            bytes = fromB64url(body.data);
-          } else {
-            const data = partData(m, meta.part_id);
-            if (!data) throw new McpError("handle_invalid", "handle_invalid: inline part without data");
-            bytes = fromB64url(data);
-          }
-          const row = await ingest(e, {
-            userId: run.userId,
-            accountId: run.account.id,
-            materialization,
-            direction: "download",
-            filename: meta.filename,
-            mime: meta.mime,
-            length: bytes.byteLength,
-            body: new Response(bytes).body as ReadableStream<Uint8Array>,
-            source: { messageId: p.message_id, attachmentId: meta.attachment_id ?? `part:${meta.part_id}` },
-          });
-          return {
-            handle: row.handle,
-            filename: row.filename,
-            mime: row.mime,
-            size: row.size,
-            sha256: row.sha256,
-            expires_at: new Date(row.expires_at).toISOString(),
-          };
-        },
-        { userId: run.userId, accountId: run.account.id, bytes: LIMITS.stagedFileBytes },
-      ),
+    plan: () => readPlan({}, "List folders"),
+    execute: async (e, d, run) => ({
+      folders: (await mail.listFolders(e, d, acct(run))).map((f) => ({
+        id: f.folderId,
+        name: f.folderName,
+        type: f.folderType ?? null,
+        path: f.path ?? null,
+      })),
+    }),
   });
+  void folderByName;
 }
