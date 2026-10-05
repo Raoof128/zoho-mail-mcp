@@ -22,7 +22,9 @@ it("passes sh -n and shellcheck, downloads once, and installs the exact verified
   // A login that failed on the first run is retried on the next run, not skipped with the init (final review I1).
   const initBlock = text.slice(text.indexOf("if [ ! -f"), text.indexOf("\nfi\n", text.indexOf("if [ ! -f")));
   expect(initBlock).not.toContain("login");
-  expect(text).toMatch(/if ! "\$COMPANION" status[^\n]*; then\n[^\n]*\n\s*"\$COMPANION" login\n/);
+  expect(text).toMatch(/if [^\n]*! "\$COMPANION" status[^\n]*; then\n[^\n]*\n\s*"\$COMPANION" login\n/);
+  // G20 seam: a scratch HOME has no default Keychain, so the gate skips only the interactive sign-in.
+  expect(text).toContain('[ "${ZMC_SKIP_LOGIN:-}" != 1 ]');
   expect(text).toContain(
     `printf '#!/bin/sh\\nexec "%s" --no-warnings=ExperimentalWarning "%s" "$@"\\n' "$NODE" "$ENTRY"`,
   );

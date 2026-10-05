@@ -174,3 +174,24 @@ it("status says whether the companion is signed in, with an exit code the instal
   expect(status.stdout).toBe("Not signed in.\n");
   expect(status.status).toBe(3);
 });
+
+it("install-agent writes the plist under HOME and reloads it through the launchctl it is given (G20 seam)", () => {
+  const cli = new URL("../src/cli.ts", import.meta.url).pathname;
+  const home = mkdtempSync(join(tmpdir(), "zma-"));
+  const log = join(home, "launchctl.log");
+  const stub = join(home, "launchctl");
+  writeFileSync(stub, `#!/bin/sh\nprintf '%s\\n' "$*" >> "${log}"\n[ "$1" = bootout ] && exit 5\nexit 0\n`, {
+    mode: 0o755,
+  });
+  const r = spawnSync(process.execPath, [cli, "install-agent"], {
+    encoding: "utf8",
+    timeout: 60_000,
+    env: { ...process.env, HOME: home, ZMC_LAUNCHCTL: stub },
+  });
+  expect(r.status, r.stderr).toBe(0);
+  const plist = join(home, "Library", "LaunchAgents", "au.com.sarabisfinerugs.mail-mcp.companion.plist");
+  expect(readFileSync(plist, "utf8")).toContain("<string>recover</string>");
+  const calls = readFileSync(log, "utf8").trim().split("\n");
+  expect(calls[0]).toMatch(/^bootout gui\/\d+\/au\.com\.sarabisfinerugs\.mail-mcp\.companion$/);
+  expect(calls[1]).toMatch(new RegExp(`^bootstrap gui/\\d+ ${plist.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}$`));
+});

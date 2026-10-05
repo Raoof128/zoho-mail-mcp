@@ -30,7 +30,14 @@ export function launchdPlist(o: {
  * snapshots and recovers interrupted saves, then exits. A `serve` under launchd would read an empty
  * stdin, exit 0 and never be restarted; the MCP clients start their own `serve` processes.
  */
-export function installAgent(o: { home: string; uid: number; program: string; run: (argv: string[]) => void }): string {
+export function installAgent(o: {
+  home: string;
+  uid: number;
+  program: string;
+  run: (argv: string[]) => void;
+  launchctl?: string;
+}): string {
+  const launchctl = o.launchctl ?? "/bin/launchctl";
   const dir = join(o.home, "Library", "LaunchAgents");
   mkdirSync(dir, { recursive: true });
   mkdirSync(join(o.home, "Library", "Logs"), { recursive: true });
@@ -48,10 +55,10 @@ export function installAgent(o: { home: string; uid: number; program: string; ru
   );
   renameSync(plist + ".tmp", plist);
   try {
-    o.run(["/bin/launchctl", "bootout", `gui/${o.uid}/${AGENT_LABEL}`]);
+    o.run([launchctl, "bootout", `gui/${o.uid}/${AGENT_LABEL}`]);
   } catch {
     // Not loaded yet: the first install.
   }
-  o.run(["/bin/launchctl", "bootstrap", `gui/${o.uid}`, plist]);
+  o.run([launchctl, "bootstrap", `gui/${o.uid}`, plist]);
   return plist;
 }

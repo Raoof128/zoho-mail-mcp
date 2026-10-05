@@ -72,7 +72,8 @@ if [ ! -f "$HOME/.config/zoho-mail-mcp/config.json" ]; then
   "$COMPANION" init --server "https://$HOST" --client-id "$CLIENT_ID"
 fi
 # Outside the first-run block: a login that failed last time (browser closed, timeout) is retried now.
-if ! "$COMPANION" status >/dev/null 2>&1; then
+# ZMC_SKIP_LOGIN=1 is for gate G20 only: a scratch HOME has no default Keychain to sign in to.
+if [ "${ZMC_SKIP_LOGIN:-}" != 1 ] && ! "$COMPANION" status >/dev/null 2>&1; then
   say "Opening your browser to approve the companion. Sign in with Zoho if asked."
   "$COMPANION" login
 fi

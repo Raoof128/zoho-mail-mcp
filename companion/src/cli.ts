@@ -134,6 +134,8 @@ async function main() {
       home: homedir(),
       uid: process.getuid!(),
       program: join(Paths.stateDir, "bin", "companion"),
+      // Gate G20 points this at a recording stub so a scratch HOME never registers with the real launchd.
+      ...(process.env.ZMC_LAUNCHCTL ? { launchctl: process.env.ZMC_LAUNCHCTL } : {}),
       run: (argv) => {
         execFileSync(argv[0]!, argv.slice(1), { stdio: "ignore", env: { PATH: "/usr/bin:/bin" } });
       },
