@@ -9,6 +9,7 @@ import type { ZohoAcct } from "../zoho/client";
 import { systemFolders } from "../zoho/folders";
 import { messageDetails, updateMessages } from "../zoho/mail";
 import type { MessageView } from "../zoho/messages";
+import { addressOf } from "../policy/recipients";
 import type { AccountRef } from "./accounts";
 import { recipientSummary, senderFor, validateCompose, zohoBody } from "./compose";
 import { defineTool, type Plan } from "./define";
@@ -78,8 +79,8 @@ async function readDraft(env: Env, deps: Deps, a: ZohoAcct, draftId: string): Pr
 
 /** What the owner approves for send_draft; the same fields are re-read at execution and must still match. */
 const snapshotOf = (v: MessageView) => ({
-  to: v.to,
-  cc: v.cc,
+  to: v.to.map(addressOf),
+  cc: v.cc.map(addressOf),
   subject: v.subject ?? "",
   html_body: v.html_body ?? "",
   has_attachment: v.has_attachment,
@@ -189,12 +190,12 @@ export function registerDraftTools(
         );
       const bodyGiven = args.body !== undefined || args.html_body !== undefined;
       const p: DraftPayload = {
-        to: args.to ?? cur.to,
-        cc: args.cc ?? cur.cc,
+        to: args.to ?? cur.to.map(addressOf),
+        cc: args.cc ?? cur.cc.map(addressOf),
         bcc: args.bcc ?? [],
         subject: args.subject ?? cur.subject ?? undefined,
         ...(bodyGiven ? { body: args.body, html_body: args.html_body } : { html_body: cur.html_body ?? "" }),
-        from: senderFor(account, args.from ?? cur.from ?? undefined),
+        from: senderFor(account, args.from ?? (cur.from ? addressOf(cur.from) : undefined)),
         ...(cur.in_reply_to ? { in_reply_to: cur.in_reply_to, references: cur.references ?? cur.in_reply_to } : {}),
         previous_draft_id: args.draft_id,
       };
@@ -204,9 +205,9 @@ export function registerDraftTools(
     execute: async (e, d, run) => {
       const p = run.payload as unknown as DraftPayload;
       const { a, out } = await saveDraft(e, d, run);
-      const sys = await systemFolders(e, d, a);
       let cleanup: "done" | "pending" = "pending";
       try {
+        const sys = await systemFolders(e, d, a);
         await messageDetails(e, d, a, sys.drafts, out.message_id); // the new draft exists before the old one goes
         const old = await messageDetails(e, d, a, sys.drafts, p.previous_draft_id!);
         await assertDraft(e, d, a, p.previous_draft_id!, old.folderId); // still a draft at the moment it is moved
@@ -229,7 +230,7 @@ export function registerDraftTools(
     name: "send_draft",
     version: 1,
     description:
-      "Send a draft as it is now. A draft with attachments is refused (draft_not_reconstructible); a draft edited after approval is refused (payload_mismatch). The draft moves to Trash only after a confirmed send.",
+      "Send a draft as it is now. Bcc recipients on the draft are not carried (Zoho does not expose them). A draft with attachments is refused (draft_not_reconstructible); a draft edited after approval is refused (payload_mismatch). The draft moves to Trash only after a confirmed send.",
     input: SendDraftInput,
     annotations: openWorld,
     action: "send.draft",
@@ -254,12 +255,12 @@ export function registerDraftTools(
           bcc: [],
           subject: snap.subject,
           html_body: snap.html_body,
-          from: v.from ?? undefined,
+          from: v.from ? addressOf(v.from) : undefined,
           idempotency_key: args.idempotency_key,
         },
         [],
         { carry: [], kind: "send", draft_id: args.draft_id, draft_sha: await hashCanonical(canonicalize(snap)) },
-        `Send draft ${args.draft_id}`,
+        `Send draft ${args.draft_id} (Bcc on the draft is not carried)`,
       );
     },
     execute: async (e, d, run) => {

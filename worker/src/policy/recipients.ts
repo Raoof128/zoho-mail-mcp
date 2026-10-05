@@ -58,6 +58,17 @@ export function parseAddress(raw: string): ParsedAddress {
   return { local, domain, normalized: `${local}@${domain}` };
 }
 
+/**
+ * Lenient reading of an address that came back from Zoho, such as `"Doe, Jane" <j@example.org>` or
+ * `"rebecca"<rebecca@zylker.com>`: the bracketed address if there is one, else the whole string, then the strict
+ * parser on that alone. Model input still goes through parseAddress (final review of M3, I2).
+ */
+export function addressOf(raw: string): string {
+  const all = [...raw.matchAll(/<([^<>]+)>/g)];
+  const bare = all.length ? all[all.length - 1]![1]! : raw.replace(/"/g, "");
+  return parseAddress(bare.trim()).normalized;
+}
+
 export function isTrusted(addr: ParsedAddress, ctx: TrustContext): boolean {
   const norm = (s: string) => parseAddress(s).normalized;
   if (ctx.selfAddresses.some((s) => norm(s) === addr.normalized)) return true;

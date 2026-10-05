@@ -17,7 +17,7 @@ import { APPROVAL_STATE_VERSION, type ApprovalState } from "../approval/state";
 import { canonicalize, hashCanonical } from "../crypto/canonical";
 import { randomId } from "../crypto/random";
 import { GmailApiError } from "../google/gmail";
-import { ZohoApiError } from "../zoho/client";
+import { ZohoApiError, wasNotSent } from "../zoho/client";
 
 const DEFINITIVE_REFUSALS = new Set([400, 401, 403, 404, 405, 413, 415, 422]);
 import { insertOperationStatement } from "../operations/journal";
@@ -437,12 +437,41 @@ export async function runExecutor(t: ToolContext, run: ExecutorRun): Promise<Rec
       // Only a definitive refusal after the request opened means nothing was sent. 408, 409, 425, 429 and the like can
       // come from a proxy after the provider acted, so they stay delivery_unknown (security review of ddf6e59).
       (state === "executing" &&
-        ((e instanceof ZohoApiError && DEFINITIVE_REFUSALS.has(e.status)) ||
+        (wasNotSent(e) ||
+          (e instanceof ZohoApiError && DEFINITIVE_REFUSALS.has(e.status)) ||
           // Gmail-era tools keep Gmail's rule (any 4xx is a refusal) until M4 retires them.
           (e instanceof GmailApiError && e.status >= 400 && e.status < 500)))
     ) {
       await settleFailedSafe(db, { operationId: run.operationId, pendingId: run.pendingId, audit, error: err.code });
       throw err;
+    }
+    if (state === "executed") {
+      // The executor recorded success and then failed on cleanup (final review of M3, I5): report the success,
+      // finish the pending row, never invite a retry that would act twice.
+      const row = await db
+        .prepare("SELECT provider_result_id, result_json FROM operations WHERE id = ?")
+        .bind(run.operationId)
+        .first<{ provider_result_id: string | null; result_json: string | null }>();
+      const recorded = row?.result_json ? (JSON.parse(row.result_json) as Record<string, unknown>) : {};
+      try {
+        await settleExecuted(db, {
+          operationId: run.operationId,
+          pendingId: run.pendingId,
+          audit: audit && row?.provider_result_id ? { ...audit, gmailResultId: row.provider_result_id } : audit,
+          gmailResultId: row?.provider_result_id ?? null,
+          result: recorded,
+        });
+      } catch {
+        // the operation itself is executed; a pending-row hiccup is not a reason to report failure
+      }
+      return {
+        status: "executed",
+        account: run.account.alias,
+        ...(run.operationId ? { operation_id: run.operationId } : {}),
+        ...(run.pendingId ? { action_id: run.pendingId } : {}),
+        ...recorded,
+        cleanup_failed: err.code,
+      };
     }
     if (state === "executing") {
       await settleUnknown(db, { operationId: run.operationId, pendingId: run.pendingId, audit });

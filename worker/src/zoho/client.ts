@@ -85,6 +85,15 @@ function url(base: string, path: string, query?: ZohoRequest["query"]): string {
   return u.toString();
 }
 
+/** An error thrown before the first request of a call left the Worker: nothing can have been sent. */
+export const NOT_SENT = Symbol("notSent");
+export function markNotSent<E extends object>(e: E): E {
+  (e as Record<symbol, boolean>)[NOT_SENT] = true;
+  return e;
+}
+export const wasNotSent = (e: unknown): boolean =>
+  typeof e === "object" && e !== null && (e as Record<symbol, boolean>)[NOT_SENT] === true;
+
 /** One request's worth of the tool call's budget and the account's bucket. Every attempt pays, retries included. */
 async function spend(stub: ReturnType<typeof accountStub>, acct: ZohoAcct, transfer = false): Promise<void> {
   if (!transfer && !(await stub.budget(acct.toolCallId, "requests", 1)))
@@ -112,8 +121,17 @@ export async function zohoFetch(env: Env, deps: Deps, acct: ZohoAcct, req: ZohoR
   let refreshed = false;
   let forceNext = false;
   for (let attempt = 1; ; attempt++) {
-    await spend(stub, acct, req.transfer === true);
-    const token = await getAccessToken(env, deps, acct.userId, acct.accountId, { forceRefresh: forceNext });
+    let token: string;
+    try {
+      await spend(stub, acct, req.transfer === true);
+      token = await getAccessToken(env, deps, acct.userId, acct.accountId, { forceRefresh: forceNext });
+    } catch (e) {
+      // Refused before anything reached Zoho (budget, bucket, token): the gate may settle this failed_safe
+      // even after the operation moved to executing (final review of M3, I6). Only the first attempt: a later one
+      // follows a response the caller cannot see.
+      if (attempt === 1 && e instanceof McpError) throw markNotSent(e);
+      throw e;
+    }
     forceNext = false;
     const headers = new Headers({ accept: "application/json", ...req.headers });
     headers.set("authorization", `Zoho-oauthtoken ${token}`);

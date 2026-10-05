@@ -2,6 +2,7 @@ import { z } from "zod";
 import type { Deps } from "../deps";
 import type { Env } from "../env";
 import { hashCanonical } from "../crypto/canonical";
+import { bodyDigestText } from "./zoho-send";
 import { systemFolders } from "../zoho/folders";
 import { listMessages, messageContent, type ZohoListRow } from "../zoho/mail";
 import { splitAddressList } from "../zoho/messages";
@@ -35,7 +36,8 @@ export function matchCandidate(exp: ExpectedSend, row: ZohoListRow, contentSha?:
   if (!sameSet(splitAddressList(row.ccAddress), exp.cc)) return false;
   if (row.subject.trim() !== exp.subject.trim()) return false;
   const t = row.sentDateInGMT || row.receivedTime;
-  if (t < exp.startedAt - 120_000 || t > exp.startedAt + 86_400_000) return false;
+  // Created at or after the send began (30 s of clock skew allowed), so an earlier identical mail is not evidence.
+  if (t < exp.startedAt - 30_000 || t > exp.startedAt + 86_400_000) return false;
   if ((row.hasAttachment ? 1 : 0) !== (exp.attachmentCount > 0 ? 1 : 0)) return false;
   if (exp.bodySha256 && contentSha !== undefined && contentSha !== exp.bodySha256) return false;
   return true;
@@ -68,11 +70,23 @@ export async function probeDeliveries(
         includesent: true,
         includeto: true,
       });
-      const candidates = sent.filter((r) => matchCandidate(exp.data, r));
+      // A Sent message already credited to an operation is never evidence for another one (final review of M3, I3).
+      const taken = new Set(
+        (
+          await env.DB.prepare(
+            "SELECT provider_result_id FROM operations WHERE account_id = ? AND provider_result_id IS NOT NULL",
+          )
+            .bind(op.account_id)
+            .all<{ provider_result_id: string }>()
+        ).results.map((x) => x.provider_result_id),
+      );
+      const candidates = sent.filter((r) => !taken.has(r.messageId) && matchCandidate(exp.data, r));
       if (candidates.length !== 1) continue; // zero or several: stays delivery_unknown
       const c = candidates[0]!;
       if (exp.data.bodySha256) {
-        const sha = await hashCanonical((await messageContent(env, deps, acct, c.folderId, c.messageId)).content);
+        const sha = await hashCanonical(
+          bodyDigestText((await messageContent(env, deps, acct, c.folderId, c.messageId)).content),
+        );
         if (sha !== exp.data.bodySha256) continue;
       }
       const res = await env.DB.prepare(

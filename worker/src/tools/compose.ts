@@ -5,7 +5,7 @@ import type { Deps } from "../deps";
 import { sha256Hex } from "../crypto/canonical";
 import { fromB64url } from "../crypto/random";
 import { LIMITS, assertHeaderSafe, assertNotBlocked, utf8Length } from "../policy/limits";
-import { parseAddress } from "../policy/recipients";
+import { addressOf, parseAddress } from "../policy/recipients";
 import { listUploadHandles, type SealedRow } from "../staging/sealed";
 import { accountStub, BUDGETS } from "../zoho/account-do";
 import type { ZohoAcct } from "../zoho/client";
@@ -259,9 +259,17 @@ export function zohoBody(
   attachments: ZohoUploadRef[],
   extra: Partial<SendBody> = {},
 ): SendBody {
-  const b: SendBody = { fromAddress: from, toAddress: args.to.join(","), encoding: "UTF-8", ...extra };
-  if (args.cc.length) b.ccAddress = args.cc.join(",");
-  if (args.bcc.length) b.bccAddress = args.bcc.join(",");
+  // What is sent is exactly what policy parsed: the normalized address of each recipient, never the raw string
+  // (final review of M3, I1: `evil@x;<ok@org>` parses as ok@org and must not reach Zoho as written).
+  const norm = (list: string[]) => list.map((r) => parseAddress(r).normalized).join(",");
+  const b: SendBody = {
+    fromAddress: parseAddress(from).normalized,
+    toAddress: norm(args.to),
+    encoding: "UTF-8",
+    ...extra,
+  };
+  if (args.cc.length) b.ccAddress = norm(args.cc);
+  if (args.bcc.length) b.bccAddress = norm(args.bcc);
   if (args.subject !== undefined) b.subject = args.subject;
   if (args.html_body !== undefined) {
     b.content = args.html_body;
@@ -280,7 +288,7 @@ export function replyRecipients(
   self: string[],
   args: { to: string[]; cc: string[]; reply_all: boolean },
 ): { to: string[]; cc: string[] } {
-  const norm = (s: string) => parseAddress(s).normalized;
+  const norm = (s: string) => addressOf(s);
   const selfSet = new Set(self.map(norm));
   const dedupe = (list: string[], exclude = new Set<string>()) => {
     const seen = new Set(exclude);

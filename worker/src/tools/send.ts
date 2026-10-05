@@ -5,6 +5,7 @@ import { ForwardInput, ReplyInput, SendMessageInput } from "@zoho-mail-mcp/share
 import type { Env } from "../env";
 import type { Deps } from "../deps";
 import { executeZohoSend } from "../operations/zoho-send";
+import { assertNotBlocked } from "../policy/limits";
 import { recipientModifiers } from "../policy/recipients";
 import { listUploadHandles } from "../staging/sealed";
 import type { ZohoAcct } from "../zoho/client";
@@ -318,6 +319,7 @@ export function registerSendTools(server: McpServer, toolContext: (ctx: ServerCo
           `budget_exceeded: the message has ${v.attachments.length} attachments; at most 10 can be forwarded`,
           { counter: "attachments" },
         );
+      for (const x of args.include_original_attachments ? v.attachments : []) assertNotBlocked(x.filename);
       const carry = args.include_original_attachments
         ? v.attachments.map((x) => ({
             message_id: v.id,

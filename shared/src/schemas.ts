@@ -248,7 +248,8 @@ export const ForwardInput = z
     ...ComposeFields,
     idempotency_key: IdempotencyKey.optional(),
   })
-  .omit({ subject: true, body: true });
+  // html_body would replace the quoted original (final review of M3, I8); a forward's own text is forward_text.
+  .omit({ subject: true, body: true, html_body: true });
 export const SendDraftInput = z.object({
   account: AccountAlias,
   draft_id: ZohoId,

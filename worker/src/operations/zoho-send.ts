@@ -5,7 +5,12 @@ import { replyMessage, saveDraft, sendMessage, type SendBody } from "../zoho/mai
 import { beginOperation } from "./journal";
 import { hashCanonical } from "../crypto/canonical";
 import type { ExpectedSend } from "./probe";
-import { splitAddressList } from "../zoho/messages";
+import { htmlToText, splitAddressList } from "../zoho/messages";
+
+/** The body as text with whitespace collapsed: what we sent and what Zoho stores (often HTML-wrapped) hash alike. */
+export function bodyDigestText(s: string): string {
+  return htmlToText(s).replace(/\s+/g, " ").trim();
+}
 
 export type SendKind = "send" | "reply" | "draft";
 export type SendOutcome = { message_id: string; folder_id: string | null };
@@ -49,7 +54,7 @@ export async function executeZohoSend(
     startedAt: Date.now(),
     attachmentCount: o.body.attachments?.length ?? 0,
     attachmentNames: (o.body.attachments ?? []).map((a) => a.attachmentName),
-    bodySha256: o.body.content ? await hashCanonical(o.body.content) : null,
+    bodySha256: o.body.content ? await hashCanonical(bodyDigestText(o.body.content)) : null,
   };
   await env.DB.prepare("UPDATE operations SET settlement_context_json=? WHERE id=? AND state='claimed'")
     .bind(JSON.stringify(expected), o.operationId)
