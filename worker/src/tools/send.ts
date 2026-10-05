@@ -1,13 +1,9 @@
 import type { McpServer, ServerContext } from "@modelcontextprotocol/server";
 import type { Modifier } from "@zoho-mail-mcp/shared/actions";
 import { McpError } from "@zoho-mail-mcp/shared/errors";
-import { ForwardInput, ReplyInput, SendDraftInput, SendMessageInput } from "@zoho-mail-mcp/shared/schemas";
+import { ForwardInput, ReplyInput, SendMessageInput } from "@zoho-mail-mcp/shared/schemas";
 import type { Env } from "../env";
 import type { Deps } from "../deps";
-import { canonicalize, hashCanonical } from "../crypto/canonical";
-import { gmailJson } from "../google/gmail";
-import { messageView as gmailMessageView, type GmailDraft } from "../google/messages";
-import { sendDraft } from "../operations/send";
 import { executeZohoSend } from "../operations/zoho-send";
 import { recipientModifiers } from "../policy/recipients";
 import { listUploadHandles } from "../staging/sealed";
@@ -34,7 +30,7 @@ import type { ExecRun, ToolContext } from "./gate";
 import { getMessage, resolveRef } from "./read";
 
 type SendKind = "send" | "reply";
-type SendPayload = {
+export type SendPayload = {
   to: string[];
   cc: string[];
   bcc: string[];
@@ -52,6 +48,9 @@ type SendPayload = {
   message_id?: string | undefined;
   folder_id?: string | undefined;
   thread_id?: string | null | undefined;
+  /** send_draft: the draft sent, and the hash of the snapshot the owner approved. */
+  draft_id?: string | undefined;
+  draft_sha?: string | undefined;
 };
 type SendArgs = {
   to: string[];
@@ -64,10 +63,9 @@ type SendArgs = {
   attachments?: string[] | undefined;
   idempotency_key?: string | undefined;
 };
-const acct = (userId: string, account: AccountRef) => ({ userId, accountId: account.id });
 const openWorld = { readOnlyHint: false, destructiveHint: false, openWorldHint: true } as const;
 /** Plan-time Zoho calls share one budget per tool invocation. */
-const planAcct = (t: ToolContext, account: AccountRef): ZohoAcct => ({
+export const planAcct = (t: ToolContext, account: AccountRef): ZohoAcct => ({
   userId: t.principal.userId,
   accountId: account.id,
   toolCallId: crypto.randomUUID(),
@@ -90,14 +88,22 @@ async function modifiersFor(
 }
 
 /** Shared plan for send_message, reply and forward once recipients are settled. Policy runs on the final recipients. */
-async function planSend(
+export async function planSend(
   env: Env,
   deps: Deps,
   a: ZohoAcct,
   account: AccountRef,
   args: SendArgs,
   inline: DecodedInline[],
-  extra: { carry: CarrySpec[]; kind: SendKind; message_id?: string; folder_id?: string; thread_id?: string | null },
+  extra: {
+    carry: CarrySpec[];
+    kind: SendKind;
+    message_id?: string;
+    folder_id?: string;
+    thread_id?: string | null;
+    draft_id?: string;
+    draft_sha?: string;
+  },
   verb: string,
 ): Promise<Plan> {
   validateCompose(args);
@@ -144,6 +150,7 @@ async function planSend(
         message_id: extra.message_id,
         folder_id: extra.folder_id,
         thread_id: extra.thread_id ?? null,
+        ...(extra.draft_id ? { draft_id: extra.draft_id, draft_sha: extra.draft_sha } : {}),
       };
       return { payload: payload as unknown as Record<string, unknown>, handles: given };
     },
@@ -151,7 +158,7 @@ async function planSend(
 }
 
 /** After approval: sealed handles still valid (Review Focus 4), carried files re-uploaded, then one send. */
-async function executeSend(env: Env, deps: Deps, run: ExecRun) {
+export async function executeSend(env: Env, deps: Deps, run: ExecRun) {
   const p = run.payload as unknown as SendPayload;
   if (!run.operationId) throw new McpError("internal", "send runs with an operation");
   const a: ZohoAcct = { userId: run.userId, accountId: run.account.id, toolCallId: run.operationId };
@@ -205,28 +212,6 @@ function quoted(v: MessageView): string {
     "",
     v.plaintext_body ?? htmlToText(v.html_body ?? ""),
   ].join("\n");
-}
-
-async function draftPayload(env: Env, deps: Deps, userId: string, account: AccountRef, draftId: string) {
-  const dr = await gmailJson<GmailDraft>(env, deps, acct(userId, account), {
-    method: "GET",
-    path: `drafts/${encodeURIComponent(draftId)}`,
-    query: { format: "full" },
-    retry: "safe",
-  });
-  const v = gmailMessageView(dr.message, { format: "PLAIN_TEXT", bodyCharLimit: 1, includeBody: false });
-  return {
-    draft_id: draftId,
-    message_id: dr.message.id,
-    thread_id: dr.message.threadId,
-    rfc822_message_id: v.message_id_header,
-    to: v.to,
-    cc: v.cc,
-    bcc: v.bcc,
-    subject: v.subject,
-    attachments: [] as string[],
-    draft_attachments: v.attachments.map((a) => ({ filename: a.filename, size: a.size })),
-  };
 }
 
 export function registerSendTools(server: McpServer, toolContext: (ctx: ServerContext) => ToolContext, env: Env): void {
@@ -337,55 +322,5 @@ export function registerSendTools(server: McpServer, toolContext: (ctx: ServerCo
       );
     },
     execute: executeSend,
-  });
-
-  defineTool(server, toolContext, env, {
-    name: "send_draft",
-    version: 1,
-    description:
-      "Send an existing draft. Recipients and attachments are read from the draft; a draft changed after approval is refused.",
-    input: SendDraftInput,
-    annotations: openWorld,
-    action: "send.draft",
-    journal: true,
-    plan: async (e, t, account, args) => {
-      const p = await draftPayload(e, t.deps, t.principal.userId, account, args.draft_id);
-      // A draft with no subject stores null, which the approval page renders; the validator takes the
-      // absent form.
-      validateCompose({ ...p, subject: p.subject ?? undefined });
-      return {
-        modifiers: await modifiersFor(e, t.principal.userId, account, p, p.draft_attachments.length > 0),
-        summary: `Send draft ${args.draft_id} · ${recipientSummary(p)} · ${attachmentSummary(p.draft_attachments)}`,
-        facts: {
-          recipients: p.to.length + p.cc.length + p.bcc.length,
-          attachments: p.draft_attachments.length,
-          ids: [args.draft_id],
-        },
-        idempotencyKey: args.idempotency_key,
-        build: () => Promise.resolve({ payload: p, handles: [] }),
-      };
-    },
-    execute: async (e, d, run) => {
-      if (!run.operationId) throw new McpError("internal", "send.draft runs with an operation");
-      const stored = run.payload as { draft_id: string; rfc822_message_id: string | null; tool: string; v: number };
-      // Spec 3.4 "one approval covers one action": the draft must still be what the owner approved.
-      const fresh = {
-        ...(await draftPayload(e, d, run.userId, run.account, stored.draft_id)),
-        tool: stored.tool,
-        v: stored.v,
-      };
-      if ((await hashCanonical(canonicalize(fresh))) !== (await hashCanonical(canonicalize(run.payload)))) {
-        throw new McpError("payload_mismatch", "payload_mismatch: the draft changed after it was approved");
-      }
-      const m = await sendDraft(e, d, {
-        userId: run.userId,
-        accountId: run.account.id,
-        operationId: run.operationId,
-        draftId: stored.draft_id,
-        rfc822MessageId: stored.rfc822_message_id,
-        recoveryContext: run.recoveryContext,
-      });
-      return { provider_result_id: m.id, message: m };
-    },
   });
 }

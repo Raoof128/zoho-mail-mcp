@@ -199,11 +199,12 @@ const ComposeFields = {
 export const CreateDraftInput = z.object({
   account: AccountAlias,
   ...ComposeFields,
-  reply_to_message_id: LegacyGmailId.optional(),
+  reply_to_message_id: ZohoId.optional(),
+  reply_to_folder_id: ZohoId.optional(),
 });
 export const UpdateDraftInput = z.object({
   account: AccountAlias,
-  draft_id: LegacyGmailId,
+  draft_id: ZohoId,
   ...ComposeFields,
   to: z.array(Recipient).max(2000).optional(),
   cc: z.array(Recipient).max(2000).optional(),
@@ -250,6 +251,6 @@ export const ForwardInput = z
   .omit({ subject: true, body: true });
 export const SendDraftInput = z.object({
   account: AccountAlias,
-  draft_id: LegacyGmailId,
+  draft_id: ZohoId,
   idempotency_key: IdempotencyKey.optional(),
 });

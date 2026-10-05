@@ -52,19 +52,7 @@ function watchFirstMutation(): { seen: { id: string; state: string }[][] } {
 
 describe("claimed means no external mutation could have happened", () => {
   // The send_message case moved to operation-state-machine-zoho.test.ts (M3 Task 3.3).
-  it("a journaled draft is executing too, because it shares the send pipeline", async () => {
-    const w = watchFirstMutation();
-    const r = await call("create_draft", {
-      account: "personal",
-      to: ["personal@example.test"],
-      subject: "d",
-      body: "b",
-    });
-    expect(r.result).toMatchObject({ status: "executed" });
-    expect(w.seen.length).toBeGreaterThan(0);
-    for (const snapshot of w.seen) for (const row of snapshot) expect(row.state).not.toBe("claimed");
-  });
-
+  // The create_draft case moved to operation-state-machine-zoho.test.ts (M3 Task 3.4).
   it("create_label, the one journaled label tool, is executing before its POST", async () => {
     await setPolicy(env.DB, { userId: U, accountId: "osm", action: "label.manage", level: "allow" });
     const w = watchFirstMutation();
