@@ -2,6 +2,7 @@ import { assertInstallation } from "./operations/installation";
 import { recoverUploads } from "./staging/recovery";
 import type { Env } from "./env";
 import { purgeExpired } from "./staging/store";
+import { purgeExpiredSealed } from "./staging/sealed";
 import { purgeStates } from "./web/state";
 
 export type CronReport = {
@@ -76,6 +77,8 @@ export async function runCron(env: Env, now: number, limit = 200): Promise<CronR
 
   await recoverUploads(env, now, limit);
   const staging = await purgeExpired(env, now, limit);
+  // Sealed handles (spec D16) replace the R2 store; both are swept until M5 deletes the old one.
+  const sealed = await purgeExpiredSealed(env.DB, now, limit);
   const audit = await env.DB.prepare(
     `DELETE FROM audit_log WHERE id IN (SELECT id FROM audit_log WHERE ts <= ? LIMIT ?)`,
   )
@@ -86,7 +89,7 @@ export async function runCron(env: Env, now: number, limit = 200): Promise<CronR
     expiredPending: expired.meta.changes ?? 0,
     promotedUnknown: promoted.meta.changes ?? 0,
     failedSafe,
-    purgedStaging: staging.deleted,
+    purgedStaging: staging.deleted + sealed.deleted,
     purgedAudit: audit.meta.changes ?? 0,
     purgedStates: await purgeStates(env.DB, now, limit),
   };
