@@ -6,6 +6,24 @@ release.
 
 ## [Unreleased]
 
+### Zoho fork: M5 attachments without a byte store (2026-10-05)
+
+- **No bytes in Cloudflare.** Uploads stream once to Zoho through a counting transform and an incremental
+  SHA-256, and are sealed in D1 with the digest. Downloads are sealed handles whose bytes stream from Zoho
+  on demand. The R2 store and binding are gone.
+- **`download_attachment` returns.** The companion's GET streams the attachment with `x-size` and
+  `x-sha256`. A one-time link for claude.ai works once, for ten minutes, only in the owner's signed-in
+  browser, and always downloads.
+- **Limits that hold.** Concurrent attachment streams are capped globally and per owner as leases that
+  cannot be outrun. Unsaved download handles are capped per owner. The cron expires stale uploads and
+  purges spent state, each step isolated. Staging from the outbox root is allowed and anything else asks.
+  At most 10 uploads per call.
+- **Deferred (review minors):** upload lease expiry should be retryable; chunked upload to Zoho needs
+  the probe; reservations held by unknown sends; the byte quota counts download handles; dead staging
+  references in docs and one qualification test; `/dl` serves an unverified second stream; a stalled
+  reader holds the connection; a race on the outstanding-download count; filename encoding edge cases;
+  more upload-path tests.
+
 ### Zoho fork: M4 organising tools (2026-10-05)
 
 - **Twenty-one organising tools on Zoho.** Labels, flags, read marks, archive, move, trash, spam and their

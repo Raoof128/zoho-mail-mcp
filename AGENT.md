@@ -110,3 +110,28 @@ Agent work on this repository, newest last. Each entry: date (Australia/Sydney),
 - Security: `apply_sensitive_*` SPAM ran under the trash policy, and a move into Drafts let the draft tools trash a non-draft. Both are fixed.
 - Final: `apply_sensitive_*` moves to Trash under `trash.move` ask, which is stricter than spec 5.4's row. It offers TRASH only.
 - Final: the reviewer ran on Sonnet, per Raouf's standing rule.
+
+---
+
+## Raouf: 2026-10-05 (Australia/Sydney) - Zoho Mail MCP: M5 attachments without a byte store executed, reviewed, fixed and pushed
+
+**Scope:** Raouf: "proceed". Code in `~/Desktop/Raouf/zoho-mail-mcp`, branch `feat/m5-attachments-streaming` (stacked on `feat/m4-organise-tools`), pushed to the private `Raoof128/zoho-mail-mcp`. Haji: carried notes in the M6 and M7 plans and these logs. Nothing deployed, no live Zoho calls.
+
+**Summary:** M5 Tasks 5.1 to 5.5 executed inline under TDD. No attachment bytes are stored in Cloudflare any more; the R2 store, materialisations and the R2 binding are gone. A companion upload streams once to Zoho through a counting transform into an incremental SHA-256, and the handle is sealed in D1 with the digest. `download_attachment` seals a download handle with the digest streamed once from Zoho, and the companion's GET streams it from Zoho again. A one-time link for claude.ai works once, for ten minutes, only in the owner's signed-in browser, and always downloads (never renders). Staging from the companion's `outbox` root is allowed; any other root asks. Every upload a call makes counts against the 10-attachment budget. The background security reviewer raised six findings during the milestone, all verified and fixed test-first, each pushed as its own commit: upload expiry had been dropped with the R2 recovery (stuck transfers held caps forever); the upload tee buffered the whole file; Zoho-streamed downloads lost their admission controls; the digest pass bypassed the stream caps and a slow stream could outrun its lease; and download handles and links grew without bound, with a linked expired handle crashing the cron purge on its foreign key. The final review (Sonnet) found one Critical and four Important issues, all fixed test-first: the purge of recovery slots, admissions, acknowledgements, stream slots and finished transfers had also been dropped, so the caps would fill permanently; a one-time link was spent before its download was admitted; a busy cap answered "invalid" instead of 429; one failing cron step stopped all later cleanup; and the digest pass and uploads could outrun their lease. Planned decisions recorded: the one-time link requires the owner's session (the plan had none), and the byte quota was kept and now counts sealed handles.
+
+**Files Changed:** zoho-mail-mcp: `worker/src/zoho/attachments.ts` (new), `worker/src/tools/attachments.ts` (new), `worker/src/staging/{upload,downloads,expiry,sealed,transfers,routes}.ts`, deleted `staging/{store,materialization,settlement,recovery,reserve}.ts`, `worker/src/tools/{send,gate,settle}.ts`, `worker/src/approval/claim.ts`, `worker/src/web/pages/approve.ts`, `worker/src/{cron,index}.ts`, `worker/wrangler.jsonc`, `shared/src/{staging,actions}.ts`, `companion/src/transfers.ts`; tests `upload`, `download`, `download-controls`, `upload-expiry`, `budgets`, `transfers`, `m5-review-fixes`, ported `staging-api`, `companion-roundtrip`, `owner-isolation`, `gate`, `claim`, `cron`, `approve`, `mcp` (49 tools), `smoke`; R2 tests retired; `AGENT.md`, `CHANGELOG.md`; M6 and M7 plan notes. Haji: the same plan notes, `AGENT.md`, `CHANGELOG.md`, `CLAUDE.md`.
+
+**Verification:** `npm run verify` exit 0: Worker 443 passed (67 files), shared 7, companion 23 passed and 1 skipped, qualification 165. Every fix test was watched failing first; the backpressure test pulled 64 of 64 chunks ahead of Zoho before the fix and fewer than 32 after. No R2 binding remains (`wrangler.jsonc`, `src`).
+
+**Follow-ups:** M6 companion and installer is next (its `init` must name the outbox root `outbox`). M7: G13 measures the streaming paths; probe chunked upload to Zoho. Eleven review minors deferred (zoho CHANGELOG), including stale R2 wording in README, SECURITY, ARCHITECTURE and a qualification test.
+
+**M5 rulings (from the ledger, deleted after the clean review):**
+
+- Task 5.1: uploads moved first. The old store, the download path and the R2 binding went in 5.2, so the companion's download route never broke. A digest or length mismatch is final, and anything else after sending is retryable. Failures release at once, since nothing is stored. The R2 upload tests were retired.
+- Task 5.2: the one-time link requires the owner's signed-in session and always downloads. The byte quota is kept and counts sealed handles. `stagingGet` mints a companion token. The plan's expired-handle case was already covered by M3. Cost if wrong: claude.ai users must be signed in to the Worker in their browser.
+- Task 5.2: a timing-dependent M3 test was replaced by deterministic client and gate tests.
+- Task 5.3: `root` is optional, and missing counts as outside the outbox. The modifier applies at transfer creation and upload admission. `stage_upload` is allow with `+outside_outbox`. The companion is trusted to report the root.
+- Task 5.4: inline and carried uploads count against the 10-file budget. The plan's forward-100 test stays as a guard.
+- Task 5.5: already done in 5.2. The tool count is 49.
+- Security: six background findings were fixed as listed above.
+- Final: the I5 test gaps beyond the new tests are deferred. The reviewer ran on Sonnet, per Raouf's standing rule.
