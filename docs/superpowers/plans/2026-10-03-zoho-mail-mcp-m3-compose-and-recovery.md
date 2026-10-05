@@ -28,6 +28,8 @@
 
 ### Task 3.1: Sealed handle reservation API
 
+> **Carried from M2 execution (2026-10-05):** compose, draft, reply, send and carried-attachment schemas still use the interim `LegacyGmailId`; move each to `ZohoId` as its tool is rewritten here, with a test that a Gmail-shaped id is refused before any Zoho request. Every Zoho call in a tool must share one `toolCallId` per invocation (journalled tools use `operationId`; read tools memoise a random id per run). Budget a tool against 10 requests: `getMessage` costs details + headers + content (+ attachmentinfo), and a bare `message_id` probe costs up to 5 more.
+
 **Files:**
 
 - Create: `worker/src/staging/sealed.ts`

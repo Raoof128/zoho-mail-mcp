@@ -14,6 +14,8 @@
 
 ### Task 5.1: Streaming upload to Zoho with a hashing tee
 
+> **Carried from M2 execution (2026-10-05):** `download_attachment` was unregistered in M2 Task 2.4. Restore it here with annotations readOnly false, destructive false, openWorld false; in `worker/test/mcp.test.ts` put it back in `ALL_TOOLS`, raise the count from 39 to 40, and restore the annotation assertion that M2 replaced with `toBeUndefined()`.
+
 **Files:**
 
 - Replace: `worker/src/staging/upload.ts`

@@ -14,6 +14,8 @@
 
 ### Task 4.1: The generic update tool factory and label tools
 
+> **Carried from M2 execution (2026-10-05):** label, target and organise schemas still use `LegacyGmailId`; move them to `ZohoId` here.
+
 > **Carried from M0 execution (2026-10-04):** `label.manage` stays at `ask` in the shared defaults (commit 88ce6ae). Set it to `allow` in this task together with the `+destructive` modifier that raises a delete, in the same commit, with a test that a label delete still asks.
 
 **Files:**
@@ -572,6 +574,8 @@ git add -A && git commit -m "feat(tools): organising tools on updatemessage and 
 ---
 
 ### Task 4.2: Retire the Gmail client and fakes
+
+> **Carried from M2 execution (2026-10-05):** delete `LegacyGmailId` from `shared/src/schemas.ts`; `grep -rn LegacyGmailId shared worker` must be 0.
 
 > **Carried from M1 execution (2026-10-04):** remove `Deps.googleFetch` (its production default already refuses, commit c4d2981), `test/gmail-transport-retired.test.ts`, FakeGmail inside FakeZoho, and FakeGoogle including its transitional Zoho Accounts face. Afterwards `grep -rn "googleFetch\|FakeGoogle\|gmail.googleapis" worker` must be 0.
 
