@@ -30,24 +30,52 @@ const refuse = (code: string): never => {
 const TEMPORARY = /^\.zoho-mail-mcp-[A-Fa-f0-9-]{36}$/;
 const { O_RDONLY, O_WRONLY, O_CREAT, O_EXCL, O_NOFOLLOW, O_NONBLOCK, O_DIRECTORY } = constants;
 
-/** Local volumes by mount point, from /sbin/mount: Node's statfs gives a numeric type and no MNT_LOCAL flag. */
-function localVolumeType(path: string): { type: string; local: boolean } {
+/**
+ * The filesystem a root lives on, from /sbin/mount: Node's statfs gives a numeric type and no
+ * MNT_LOCAL flag. A mount line is "<source> on <mount point> (<type>, <options>)" and the source and
+ * mount point are user-controlled (a share or volume name can contain " on " or "(apfs, local)"),
+ * so the text is never trusted to say where a mount is. Each " on " split is a candidate, and a
+ * line counts only when a candidate path has the root's own device id. The options are the final
+ * parenthesis, which the kernel writes. Every matching line must agree.
+ */
+export function mountedVolume(
+  table: string,
+  dev: bigint,
+  devOf: (path: string) => bigint | undefined,
+): { type: string; local: boolean } {
+  const found: { type: string; local: boolean }[] = [];
+  for (const line of table.split("\n")) {
+    const options = /^(.*) \(([^,()]+)((?:, [^,()]+)*)\)$/.exec(line);
+    if (!options) continue;
+    const head = options[1]!;
+    let at = head.indexOf(" on ");
+    while (at >= 0) {
+      if (devOf(head.slice(at + 4)) === dev) {
+        found.push({ type: options[2]!, local: (options[3] ?? "").split(", ").includes("local") });
+        break;
+      }
+      at = head.indexOf(" on ", at + 1);
+    }
+  }
+  if (!found.length) return refuse("unsupported_volume");
+  return found.every((v) => v.type === found[0]!.type && v.local === found[0]!.local)
+    ? found[0]!
+    : { type: "ambiguous", local: false };
+}
+function localVolumeType(dev: bigint): { type: string; local: boolean } {
   let table: string;
   try {
     table = execFileSync("/sbin/mount", [], { encoding: "utf8", env: { PATH: "/usr/bin:/bin" }, timeout: 10_000 });
   } catch {
     return refuse("unsupported_volume");
   }
-  let best: { at: string; type: string; local: boolean } | undefined;
-  for (const line of table.split("\n")) {
-    const m = /^.+? on (.+) \(([^,)]+)((?:, [^,)]+)*)\)$/.exec(line);
-    if (!m) continue;
-    const at = m[1]!;
-    const beneath = at === "/" || path === at || path.startsWith(at + sep);
-    if (beneath && (!best || at.length > best.at.length))
-      best = { at, type: m[2]!, local: (m[3] ?? "").split(", ").includes("local") };
-  }
-  return best ?? refuse("unsupported_volume");
+  return mountedVolume(table, dev, (path) => {
+    try {
+      return lstatSync(path, { bigint: true }).dev;
+    } catch {
+      return undefined;
+    }
+  });
 }
 const sameTime = (a: BigIntStats, b: BigIntStats) => a.mtimeNs === b.mtimeNs && a.ctimeNs === b.ctimeNs;
 function syncDirectory(path: string, code: string): void {
@@ -123,7 +151,7 @@ class Root {
     if (Number(st.uid) !== process.getuid!() || (Number(st.mode) & 0o022) !== 0) refuse("unsupported_root");
     this.dev = st.dev;
     this.ino = st.ino;
-    const volume = localVolumeType(this.path);
+    const volume = localVolumeType(this.dev);
     if (!volume.local) refuse("unsupported_root");
     if (volume.type !== "apfs" && volume.type !== "hfs") refuse("unsupported_volume");
   }

@@ -2,7 +2,7 @@ import { it, expect } from "vitest";
 import { mkdtempSync, writeFileSync, mkdirSync, existsSync, readFileSync, symlinkSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { SafeFiles } from "../src/native/safe-files.ts";
+import { SafeFiles, mountedVolume } from "../src/native/safe-files.ts";
 
 function world() {
   const base = mkdtempSync(join(tmpdir(), "zsf-"));
@@ -87,4 +87,17 @@ it("verifies a saved file by identity and digest, and discards only the temporar
   ).toBe(true);
   expect(files.temporaryPresence("attachments", temporary)).toBe("absent");
   expect(files.discardTemporary("attachments", temporary, null)).toBe(false);
+});
+it("matches a root to its mount by device, so a crafted share name cannot borrow another volume's type (parser differential)", () => {
+  const devices: Record<string, bigint> = { "/": 1n, "/System/Volumes/Data": 2n, "/Volumes/share": 9n };
+  const devOf = (p: string) => devices[p];
+  const table = [
+    "/dev/disk3s1s1 on / (apfs, sealed, local, read-only, journaled)",
+    "/dev/disk3s5 on /System/Volumes/Data (apfs, local, journaled, nobrowse)",
+    "//u@srv/x on / on /Volumes/share (smbfs, nodev, nosuid, mounted by u)",
+    "//u@srv/y on /Volumes/share (apfs, local) (smbfs, nodev, nosuid, mounted by u)",
+  ].join("\n");
+  expect(mountedVolume(table, 2n, devOf)).toEqual({ type: "apfs", local: true });
+  expect(mountedVolume(table, 9n, devOf)).toEqual({ type: "smbfs", local: false });
+  expect(() => mountedVolume(table, 7n, devOf)).toThrow("unsupported_volume");
 });
