@@ -30,6 +30,8 @@
 
 ### Task 6.1: Configuration and private state
 
+> **Carried from M5 execution (2026-10-05):** the Worker allows staging only from a companion root named exactly `outbox` (`+outside_outbox` raises every other root, or a missing one, to ask). The companion's `init`/configure must create that root under that name, and `companion/src/transfers.ts` already sends `root` in the upload metadata.
+
 **Files:**
 
 - Delete: `companion/native-swift-retired/` (whole directory)

@@ -25,6 +25,8 @@
 
 ### Task 7.1: Zoho API client and `.env` entries (Raouf, in the client's console)
 
+> **Carried from M5 execution (2026-10-05):** G13 should measure the streaming paths as built: uploads pass once through a counting transform into `crypto.DigestStream` (no buffering), `download_attachment` streams once into a digest, and every attachment stream holds a leased slot (2 per owner, 4 global, 5-minute lease, cut off when it lapses). Check a 25 MiB upload and download for CPU-limit terminations and for the lease cutting off a slow client.
+
 > **Carried from M3 execution (2026-10-05):** `accounts.send_limit_bytes` is CHECK-capped at 25 MiB (Gmail-era), so spec D14's 32 MB per message is unreachable and the stricter limit applies. Ask the owner; if 32 MB is wanted, add a migration raising the cap. Probe items from M3: whether draft details expose `bccAddress` (send_draft currently drops Bcc), whether `messages/content` returns a plain-text send verbatim or HTML-wrapped (the Sent probe's body hash), and whether a draft saved with uploaded attachments keeps them (`DRAFT_ATTACHMENTS_SUPPORTED`).
 
 - [ ] **Step 1:** In the client's Zoho API console (`https://api-console.zoho.com.au`, signed in as the client's Zoho admin, the account that owns `info@sarabisfinerugs.com.au`): Add Client, **Server-based Applications**, name `Sarabi Mail MCP`, homepage `https://mail-mcp.sarabisfinerugs.com.au`, authorised redirect URIs `https://mail-mcp.sarabisfinerugs.com.au/zoho/callback` and `https://mail-mcp.sarabisfinerugs.com.au/zoho/login/callback`. Create.
