@@ -2,7 +2,7 @@ import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Deps } from "../deps";
 import type { Env } from "../env";
 import { replyMessage, saveDraft, sendMessage, type SendBody } from "../zoho/mail";
-import { transition } from "./journal";
+import { beginOperation } from "./journal";
 import { hashCanonical } from "../crypto/canonical";
 import type { ExpectedSend } from "./probe";
 import { splitAddressList } from "../zoho/messages";
@@ -54,7 +54,8 @@ export async function executeZohoSend(
   await env.DB.prepare("UPDATE operations SET settlement_context_json=? WHERE id=? AND state='claimed'")
     .bind(JSON.stringify(expected), o.operationId)
     .run();
-  await transition(env.DB, o.operationId, ["claimed"], "executing");
+  // Throws unless this run moved the row from claimed: a concurrent or replayed run must never send twice.
+  await beginOperation(env.DB, o.operationId);
   const sent =
     o.kind === "reply"
       ? await replyMessage(env, deps, acct, o.messageId!, o.body)

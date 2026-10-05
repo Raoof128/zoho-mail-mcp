@@ -49,4 +49,22 @@ describe("executeZohoSend", () => {
       "claimed",
     );
   });
+  it("never sends for an operation that is not claimed: a concurrent or replayed run is refused (security review)", async () => {
+    const { z, e, d, acct } = await zohoFixture();
+    for (const [id, state] of [
+      ["op4", "executing"],
+      ["op5", "executed"],
+    ] as const) {
+      await insertOperation(e.DB, id, "u", acct.accountId, state);
+      await expect(
+        executeZohoSend(e, d, {
+          ...acct,
+          operationId: id,
+          kind: "send",
+          body: { fromAddress: "sarabi@example.test", toAddress: "c@example.org", subject: "S", content: "b" },
+        }),
+      ).rejects.toThrow(/not claimed/);
+    }
+    expect(z.mail.sent).toHaveLength(0);
+  });
 });
