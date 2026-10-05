@@ -14,6 +14,8 @@
 
 ### Task 5.1: Streaming upload to Zoho with a hashing tee
 
+> **Carried from M3 execution (2026-10-05):** when the old R2 staging store is deleted in this milestone, delete `worker/src/staging/reserve.ts` too and point `gate.ts`, `approval/claim.ts`, `tools/settle.ts` and `cron.ts` at `staging/sealed.ts` alone (the interim module reserves, consumes and releases across both tables). `staging/settlement.ts` is already a plain batch.
+
 > **Carried from M2 execution (2026-10-05):** `download_attachment` was unregistered in M2 Task 2.4. Restore it here with annotations readOnly false, destructive false, openWorld false; in `worker/test/mcp.test.ts` put it back in `ALL_TOOLS`, raise the count from 39 to 40, and restore the annotation assertion that M2 replaced with `toBeUndefined()`.
 
 **Files:**
