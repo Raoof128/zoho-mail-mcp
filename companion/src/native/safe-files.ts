@@ -145,7 +145,9 @@ class Root {
   readonly path: string;
   readonly dev: bigint;
   readonly ino: bigint;
-  constructor(readonly grant: RootGrant) {
+  readonly grant: RootGrant;
+  constructor(grant: RootGrant) {
+    this.grant = grant;
     this.path = physical(grant.path, "root_open");
     const st = directoryStat(this.path, "root_open");
     if (Number(st.uid) !== process.getuid!() || (Number(st.mode) & 0o022) !== 0) refuse("unsupported_root");

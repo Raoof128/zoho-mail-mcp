@@ -61,7 +61,7 @@ async function main() {
       if (roots[id]) throw new Error("duplicate_root");
       roots[id] = { path: resolve(item.slice(split + 1)), read: true, write: false };
     }
-    const native = new NativeProcess(true);
+    const native = new NativeProcess({ initialize: true });
     try {
       await native.call({ origin: values.origin, client_id: values["client-id"], roots });
     } finally {

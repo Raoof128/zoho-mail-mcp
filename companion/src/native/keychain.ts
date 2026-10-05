@@ -28,8 +28,10 @@ export const KEYCHAIN_MAX_BYTES = 2048;
  * stored as base64 and read back after every write: interactive mode exits 0 even when a command fails.
  */
 export class KeychainCredentials implements CredentialStore {
-  constructor(private readonly service = KEYCHAIN_SERVICE) {
+  private readonly service: string;
+  constructor(service = KEYCHAIN_SERVICE) {
     if (!plain.test(service)) refuse("keychain_write");
+    this.service = service;
   }
   read(account: string): Buffer | null {
     if (!plain.test(account)) refuse("keychain_read");
@@ -86,10 +88,12 @@ export function mapCredentials(map: Map<string, Buffer>): CredentialStore {
 
 /** Port of AuthState (Auth.swift). The caller holds the process lock, including across an HTTP refresh. */
 export class AuthState {
-  constructor(
-    private readonly journal: Journal,
-    private readonly store: CredentialStore,
-  ) {}
+  private readonly journal: Journal;
+  private readonly store: CredentialStore;
+  constructor(journal: Journal, store: CredentialStore) {
+    this.journal = journal;
+    this.store = store;
+  }
   epoch(account: string): string {
     const old = this.journal.get("auth_epoch", account);
     if (old) return old.payload;

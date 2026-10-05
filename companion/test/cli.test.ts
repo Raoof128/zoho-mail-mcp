@@ -1,5 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
-import { existsSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { it, expect } from "vitest";
 
 it("launches the CLI directly in Node and lists tools without accessing credentials", async () => {
@@ -59,26 +61,28 @@ it("launches the CLI directly in Node and lists tools without accessing credenti
   }
 });
 
-const nativeBinary = new URL("../native/.build/release/gmail-mcp-native", import.meta.url).pathname;
-
-// Integration, not hermetic: this drives the real helper against this machine's own journal. The
-// helper resolves its state directory from $HOME as a security boundary and deliberately offers no
-// override, so making this isolated would mean weakening that. npm run verify does not build Swift,
-// so the case skips rather than making the TypeScript gate depend on a release build; the native
-// suite is the authority for the behaviour and this only proves the wiring.
-it.skipIf(!existsSync(nativeBinary))("debt lists charged debt and refuses a handle that is not there", () => {
+// Hermetic: the companion resolves its state from $HOME, so a temporary HOME gives it a private
+// configuration, journal and roots without any override inside the native port.
+it("debt lists charged debt and refuses a handle that is not there", () => {
   const cli = new URL("../src/cli.ts", import.meta.url).pathname;
-  // The helper takes an exclusive lock and its waiter blocks, so a save in flight makes this wait.
-  // Never spawn it without a timeout.
-  const list = spawnSync(process.execPath, [cli, "debt"], { encoding: "utf8", timeout: 60_000 });
+  const home = mkdtempSync(join(tmpdir(), "zmh-"));
+  const env = { ...process.env, HOME: home };
+  const init = spawnSync(
+    process.execPath,
+    [cli, "init", "--origin", "https://mail-mcp.example.test", "--client-id", "cid"],
+    { encoding: "utf8", timeout: 60_000, env },
+  );
+  expect(init.status, init.stderr).toBe(0);
+  // A second companion waits for the process lock, so never spawn it without a timeout.
+  const list = spawnSync(process.execPath, [cli, "debt"], { encoding: "utf8", timeout: 60_000, env });
   expect(list.error).toBeUndefined();
   expect(list.status).toBe(0);
-  // Either nothing is charged, or every row prints the exact command that clears it.
-  expect(list.stdout).toMatch(/^No charged save debt\.\n$|--scope \S+ --release \S+/);
+  expect(list.stdout).toBe("No charged save debt.\n");
 
   const bogus = spawnSync(process.execPath, [cli, "debt", "--scope", "nosuchscope", "--release", "nosuchhandle"], {
     encoding: "utf8",
     timeout: 60_000,
+    env,
   });
   expect(bogus.error).toBeUndefined();
   expect(bogus.stdout).toBe("No such receipt.\n");
@@ -89,6 +93,7 @@ it.skipIf(!existsSync(nativeBinary))("debt lists charged debt and refuses a hand
   const noScope = spawnSync(process.execPath, [cli, "debt", "--release", "sh_whatever"], {
     encoding: "utf8",
     timeout: 60_000,
+    env,
   });
   expect(noScope.stdout).toBe("");
   expect(noScope.stderr).toContain("Usage: zoho-mail-mcp-companion");
