@@ -40,13 +40,16 @@ export async function insertSealed(
     .run();
 }
 export async function purgeExpiredSealed(db: D1Database, now: number, limit = 200): Promise<{ deleted: number }> {
-  const res = await db
-    .prepare(
-      `DELETE FROM sealed_handles WHERE handle IN (SELECT handle FROM sealed_handles WHERE (expires_at <= ? OR consumed_at IS NOT NULL) AND reserved_by_operation_id IS NULL LIMIT ?)`,
-    )
-    .bind(now, limit)
-    .run();
-  return { deleted: res.meta.changes ?? 0 };
+  // One-time links reference handles, so they go first: spent or expired links, and any link on a handle about to be
+  // purged. Without this the handle delete hit the foreign key and stopped every cleanup (security review, M5).
+  const due = `SELECT handle FROM sealed_handles WHERE (expires_at <= ? OR consumed_at IS NOT NULL) AND reserved_by_operation_id IS NULL LIMIT ?`;
+  const [, res] = await db.batch([
+    db
+      .prepare(`DELETE FROM download_links WHERE expires_at <= ? OR consumed_at IS NOT NULL OR handle IN (${due})`)
+      .bind(now, now, limit),
+    db.prepare(`DELETE FROM sealed_handles WHERE handle IN (${due})`).bind(now, limit),
+  ]);
+  return { deleted: res!.meta.changes ?? 0 };
 }
 
 /** Holds referenced handles open while an approval is pending. Only ever raises the expiry. */

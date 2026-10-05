@@ -30,6 +30,9 @@ const acct = (run: ExecRun) => {
   return { userId: run.userId, accountId: run.account.id, toolCallId: id };
 };
 
+/** Download handles an owner may hold unsaved at once. */
+export const MAX_OUTSTANDING_DOWNLOADS = 20;
+
 export function registerAttachmentTools(
   server: McpServer,
   toolContext: (ctx: ServerContext) => ToolContext,
@@ -58,6 +61,17 @@ export function registerAttachmentTools(
     execute: async (e, d, run) => {
       const p = Input.omit({ account: true }).parse(run.payload);
       const a = acct(run);
+      // Outstanding download handles per owner are capped, so repeated calls cannot pile up rows (security review, M5).
+      const outstanding = await e.DB.prepare(
+        "SELECT count(*) AS n FROM sealed_handles WHERE user_id = ? AND direction = 'download' AND consumed_at IS NULL AND expires_at > ?",
+      )
+        .bind(run.userId, Date.now())
+        .first<{ n: number }>();
+      if ((outstanding?.n ?? 0) >= MAX_OUTSTANDING_DOWNLOADS)
+        throw new McpError(
+          "rate_limited",
+          `rate_limited: ${MAX_OUTSTANDING_DOWNLOADS} attachment handles are waiting to be saved; save or let them expire first`,
+        );
       const ref = await resolveRef(e, d, a, p);
       const info = (await attachmentInfo(e, d, a, ref.folderId, ref.messageId)).find(
         (x) => x.attachmentId === p.attachment_id,

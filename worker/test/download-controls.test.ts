@@ -129,3 +129,54 @@ describe("download admission controls", () => {
     }
   });
 });
+
+describe("download storage stays bounded (security review of the attachments tool)", () => {
+  it("the cron purges an expired handle together with its one-time link instead of failing on the reference", async () => {
+    const { runCron } = await import("../src/cron");
+    const { testEnv } = await import("./test-env");
+    const f = await sealed();
+    const link = await f.e.DB.prepare("SELECT id FROM download_links WHERE handle = ?")
+      .bind(f.handle)
+      .first<{ id: string }>();
+    expect(link).not.toBeNull();
+    await f.e.DB.prepare("UPDATE sealed_handles SET expires_at = ? WHERE handle = ?")
+      .bind(Date.now() - 1, f.handle)
+      .run();
+    await f.e.DB.prepare("UPDATE download_links SET expires_at = ? WHERE handle = ?")
+      .bind(Date.now() - 1, f.handle)
+      .run();
+    await runCron(testEnv(), Date.now());
+    expect(
+      await f.e.DB.prepare("SELECT count(*) AS n FROM sealed_handles WHERE handle = ?").bind(f.handle).first(),
+    ).toEqual({ n: 0 });
+    expect(
+      await f.e.DB.prepare("SELECT count(*) AS n FROM download_links WHERE handle = ?").bind(f.handle).first(),
+    ).toEqual({ n: 0 });
+  });
+  it("an owner cannot pile up unbounded outstanding download handles", async () => {
+    const f = await sealed();
+    const now = Date.now();
+    for (let i = 0; i < 25; i++)
+      await f.e.DB.prepare(
+        `INSERT INTO sealed_handles (handle,user_id,account_id,direction,provider_ref,filename,mime,size,sha256,created_at,expires_at) VALUES (?,?,?,'download','{}','f','m',1,?,?,?)`,
+      )
+        .bind(`sh_${String(i).padStart(43, "q")}`, "u", f.accountId, "0".repeat(64), now, now + 600_000)
+        .run();
+    const m = f.z.mail.seedMessage(f.Z, {
+      folder: "Inbox",
+      from: "c@example.org",
+      to: ["sarabi@example.test"],
+      subject: "e",
+      content: "x",
+      attachments: [{ name: "e.pdf", bytes: new Uint8Array([9]), mime: "application/pdf" }],
+    });
+    await expect(
+      callTool(f.e, f.d, "u", "download_attachment", {
+        account: "sarabi",
+        message_id: m.messageId,
+        folder_id: m.folderId,
+        attachment_id: f.z.mail.get(f.Z, m.messageId)!.attachments[0]!.attachmentId,
+      }),
+    ).rejects.toMatchObject({ code: "rate_limited" });
+  });
+});
