@@ -7,6 +7,7 @@ import {
 import { z } from "zod";
 import type { Env } from "../env";
 import { randomId } from "../crypto/random";
+import type { Route } from "../web/router";
 export const COMPANION_KEY = "companion_client_id";
 export const COMPANION_MARKER = "zoho-mail-mcp-companion:attempt:";
 export const isCompanionName = (name: unknown) =>
@@ -101,3 +102,20 @@ export async function registerCompanionClient(env: Env, source: HelpersSource): 
     throw new Error("companion registration quarantined: creator fence lost");
   return client.clientId;
 }
+
+/**
+ * The installer reads the companion's OAuth client id from here (M6 Task 6.7). It is public by design:
+ * a public client with PKCE and loopback redirects, so the id grants nothing on its own. No session.
+ */
+export const companionClientIdRoutes: Route[] = [
+  {
+    method: "GET",
+    pattern: /^\/companion-client-id$/,
+    handler: async ({ env }) => {
+      const id = await getCompanionClientId(env.DB);
+      return id
+        ? new Response(id, { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" } })
+        : new Response("Not registered", { status: 404, headers: { "cache-control": "no-store" } });
+    },
+  },
+];

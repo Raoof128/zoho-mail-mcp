@@ -1,5 +1,5 @@
 import { spawn, spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, readFileSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { it, expect } from "vitest";
@@ -127,4 +127,33 @@ it("init creates the Received and To Send folders and configures the default roo
   );
   expect(again.status).toBe(1);
   expect(again.stdout + again.stderr).toContain("configuration_exists");
+});
+
+it("configure-clients adds the companion to Claude Desktop, keeps other servers, and is a no-op the second time", () => {
+  const cli = new URL("../src/cli.ts", import.meta.url).pathname;
+  const home = mkdtempSync(join(tmpdir(), "zmc-"));
+  const desktop = join(home, "Library", "Application Support", "Claude");
+  mkdirSync(desktop, { recursive: true });
+  writeFileSync(join(desktop, "claude_desktop_config.json"), '{"mcpServers":{"other":{"command":"x","args":[]}}}');
+  // No claude or codex on this PATH: both are reported as not installed rather than failing the run.
+  const env = { ...process.env, HOME: home, PATH: "/usr/bin:/bin" };
+  const run = () =>
+    spawnSync(process.execPath, [cli, "configure-clients", "--host", "mail-mcp.example.test"], {
+      encoding: "utf8",
+      timeout: 60_000,
+      env,
+    });
+  const first = run();
+  expect(first.status, first.stderr).toBe(0);
+  expect(first.stdout).toContain("Claude Code: not installed, skipped.");
+  expect(first.stdout).toContain("Codex: not installed, skipped.");
+  expect(first.stdout).toContain("Claude Desktop: added zoho-mail-companion");
+  expect(first.stdout).toContain("https://mail-mcp.example.test/mcp");
+  expect(first.stdout).not.toMatch(/—/);
+  const config = JSON.parse(readFileSync(join(desktop, "claude_desktop_config.json"), "utf8")) as {
+    mcpServers: Record<string, { command: string; args: string[] }>;
+  };
+  expect(config.mcpServers.other).toEqual({ command: "x", args: [] });
+  expect(config.mcpServers["zoho-mail-companion"]!.args).toEqual(["serve"]);
+  expect(run().stdout).toContain("Claude Desktop: zoho-mail-companion already set up.");
 });

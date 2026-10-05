@@ -9,10 +9,17 @@ import { NativeProcess } from "./native.ts";
 import { login, logout } from "./auth.ts";
 import { buildCompanionServer } from "./server.ts";
 import { installAgent } from "./launchd.ts";
+import {
+  COMPANION_NAME,
+  configureClaudeCode,
+  configureCodex,
+  desktopConnectorInstructions,
+  mergeClaudeDesktopConfig,
+} from "./configure.ts";
 import { Paths } from "./native/config.ts";
 
 const USAGE =
-  "Usage: zoho-mail-mcp-companion init --server https://HOST --client-id ID [--write-root PATH] [--read-root ID=PATH] | login | logout | serve | recover | install-agent | debt [--scope SCOPE --release HANDLE]\n";
+  "Usage: zoho-mail-mcp-companion init --server https://HOST --client-id ID [--write-root PATH] [--read-root ID=PATH] | login | logout | serve | recover | install-agent | configure-clients --host HOST | debt [--scope SCOPE --release HANDLE]\n";
 /** What a refusal means, in one plain line for the owner. Codes not listed print as they are. */
 const PLAIN: Record<string, string> = {
   configuration_exists: "The companion is already set up on this Mac.",
@@ -119,6 +126,26 @@ async function main() {
       },
     });
     process.stdout.write(`Login agent installed: ${plist}\n`);
+    return;
+  }
+  if (command === "configure-clients") {
+    const { values } = parseArgs({ args: process.argv.slice(3), options: { host: { type: "string" } } });
+    const host = values.host;
+    if (!host || !/^[a-z0-9.-]+$/.test(host)) throw new Error("usage");
+    const appDir = Paths.stateDir;
+    const lines = [...configureClaudeCode(appDir, host), ...configureCodex(appDir, host)];
+    const desktop = join(homedir(), "Library", "Application Support", "Claude", "claude_desktop_config.json");
+    try {
+      const r = mergeClaudeDesktopConfig(desktop, { command: join(appDir, "bin", "companion"), args: ["serve"] });
+      lines.push(
+        r.changed
+          ? `Claude Desktop: added ${COMPANION_NAME}${r.backup ? ` (backup: ${r.backup})` : ""}.`
+          : `Claude Desktop: ${COMPANION_NAME} already set up.`,
+      );
+    } catch {
+      lines.push(`Claude Desktop: left unchanged, its settings file could not be read (${desktop}).`);
+    }
+    process.stdout.write(lines.join("\n") + "\n" + desktopConnectorInstructions(host) + "\n");
     return;
   }
   if (command === "debt") {

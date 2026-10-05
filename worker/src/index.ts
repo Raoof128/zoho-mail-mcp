@@ -6,7 +6,7 @@ import type { Env } from "./env";
 import { runCron } from "./cron";
 import { probeDeliveries } from "./operations/probe";
 import { defaultDeps, type Deps } from "./deps";
-import { isCompanionName } from "./auth/companion";
+import { companionClientIdRoutes, isCompanionName } from "./auth/companion";
 import { isRegistrationOpen } from "./auth/registration";
 import { authorizeRoutes } from "./auth/authorize";
 import { connectRoutes } from "./zoho/connect";
@@ -46,6 +46,7 @@ function oauthOptions(env: Env, deps: Deps): OAuthProviderOptions<Env> {
       ...policyRoutes,
       ...auditRoutes,
       ...downloadLinkRoutes(deps),
+      ...companionClientIdRoutes,
     ]),
     authorizeEndpoint: "/authorize",
     tokenEndpoint: "/token",
