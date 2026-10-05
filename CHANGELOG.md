@@ -6,6 +6,29 @@ release.
 
 ## [Unreleased]
 
+### Zoho fork: M3 compose, send, drafts and recovery (2026-10-05)
+
+- **Send, reply, forward on Zoho.** Recipients for replies are rebuilt by the server. Policy is decided on
+  the final recipients, and an external address raises the level. What is sent is the normalized address
+  policy checked. Card numbers and tax file numbers in the subject, body or inline text raise
+  `+sensitive`.
+- **Attachments.** Staged files are sealed handles in D1. Files already in the mailbox are planned
+  without uploading anything, and re-uploaded only after approval. A forward or carry is capped at 10
+  files, refused before any upload. Byte transfers spend the attachments budget.
+- **Drafts.** `update_draft` saves the new draft before trashing the old one. `send_draft` sends the
+  approved snapshot, refuses one edited since, and trashes it only on a confirmed send. Drafts with
+  attachments are refused until the probe confirms Zoho keeps them. The draft tools act only on messages
+  Zoho reports in Drafts.
+- **Exactly once.** A send never runs twice. Only definitive refusals after a send began are
+  `failed_safe`, and a refusal before any request is too. Everything else is `delivery_unknown`, settled
+  only by one unambiguous Sent match or by the owner's "Close as not sent" on the audit page.
+- **Removed.** The Gmail send pipeline, resumable upload, MIME builder and protocol-2 recovery.
+  Migration 0002 allows one live account per slot.
+- **Deferred (review minors):** duplicate handles are not de-duplicated; inline uploads are not charged
+  to the attachments budget; reservation leaks for probe-settled or closed operations; the probe writes
+  no audit row; the replay result is thin; the TFN pattern misses one order; Zoho body fields need
+  confirming by the probe; probe robustness and plan-time budgets need work.
+
 ### Zoho fork: M2 read tools (2026-10-05)
 
 - **Read tools on Zoho.** `search_messages`, `search_threads`, `get_thread`, `get_message`, `list_drafts`,
