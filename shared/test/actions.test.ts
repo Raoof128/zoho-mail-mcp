@@ -17,7 +17,7 @@ describe("Zoho policy registry", () => {
     // together with +outside_outbox. Until then an allow default would let a label delete, or staging from any
     // root, run without approval.
     expect(DEFAULT_POLICY["label.manage"]).toBe("allow"); // M4: delete_label carries +destructive, which raises it
-    expect(DEFAULT_POLICY["attachment.stage_upload"]).toBe("ask");
+    expect(DEFAULT_POLICY["attachment.stage_upload"]).toBe("allow"); // M5: +outside_outbox raises non-outbox roots
     for (const a of ["folder.move", "flag.set", "read.mark", "archive.set"] as const)
       expect(DEFAULT_POLICY[a]).toBe("allow");
     expect(DEFAULT_POLICY["policy.edit"]).toBe("browser");

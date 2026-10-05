@@ -59,7 +59,7 @@ export const DEFAULT_POLICY: Record<Action, Level | "browser"> = {
   "trash.move": "ask",
   "trash.restore": "allow",
   // ask until M5 Task 5.3 adds +outside_outbox (security review of M0 Task 0.4).
-  "attachment.stage_upload": "ask",
+  "attachment.stage_upload": "allow", // +outside_outbox raises anything not from the outbox root to ask
   "fs.save": "allow",
   "account.read": "allow",
   "account.connect": "ask",

@@ -54,7 +54,7 @@ export async function acceptUpload(
   )
     throw new McpError("handle_invalid", "handle_invalid: upload headers");
   assertNotBlocked(m.filename);
-  const policy = await policySnapshot(env, p.userId, t.account_id);
+  const policy = await policySnapshot(env, p.userId, t.account_id, m.root);
   if (policy.level === "deny") {
     await terminalBeforeAdmission(env, t, "denied", "policy_denied");
     throw new McpError("policy_denied", "policy_denied: upload admission");

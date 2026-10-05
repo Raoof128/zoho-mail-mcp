@@ -43,6 +43,11 @@ export const UploadMetadata = z.strictObject({
   size: z.number().int().min(0).max(STAGING_LIMITS.fileBytes),
   mime: MediaType,
   sha256: Sha256Hex,
+  /** The companion root the file came from. Staging from "outbox" is allowed; anything else, or no root, asks (+outside_outbox). */
+  root: z
+    .string()
+    .regex(/^[a-z][a-z0-9_-]{0,63}$/)
+    .optional(),
 });
 export type UploadMetadata = z.infer<typeof UploadMetadata>;
 const fields = { transfer_id: TransferId, account: AccountAlias, metadata: UploadMetadata };

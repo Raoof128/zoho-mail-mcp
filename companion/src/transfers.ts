@@ -99,6 +99,7 @@ export class Companion {
           metadata: UploadMetadata.parse({
             filename: source.path.split("/").at(-1),
             mime: source.mime,
+            root: source.root,
             ...snapshot.file,
           }),
         },

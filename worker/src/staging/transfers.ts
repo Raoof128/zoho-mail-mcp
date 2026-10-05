@@ -1,6 +1,7 @@
 import { recoveryBudget } from "./budgets";
 import { TransferIntent, type TransferResult, STAGING_LIMITS as L } from "@zoho-mail-mcp/shared/staging";
 import { McpError } from "@zoho-mail-mcp/shared/errors";
+import type { Modifier } from "@zoho-mail-mcp/shared/actions";
 import type { Env } from "../env";
 import type { Principal } from "../auth/principal";
 import { canonicalize, hashCanonical } from "../crypto/canonical";
@@ -58,7 +59,7 @@ export function auditFor(t: TransferRow, decision: string) {
     accountId: t.account_id,
     tool: "stage_file",
     action: "attachment.stage_upload",
-    modifiers: [],
+    modifiers: stagingModifiers(rootOf(t)),
     decision,
     ...(t.pending_id ? { pendingId: t.pending_id } : {}),
     ...(t.operation_id ? { operationId: t.operation_id } : {}),
@@ -106,7 +107,14 @@ export async function transferView(
   }
   return out;
 }
-export async function policySnapshot(env: Env, user: string, account: string) {
+/** The root recorded with a transfer's metadata. */
+export const rootOf = (t: { metadata_json: string }): string | undefined =>
+  (JSON.parse(t.metadata_json) as { root?: string }).root;
+/** Spec section 6: files from the companion's outbox root may be staged freely; any other root raises the level. */
+export function stagingModifiers(root: string | undefined): Modifier[] {
+  return root === "outbox" ? [] : ["+outside_outbox"];
+}
+export async function policySnapshot(env: Env, user: string, account: string, root?: string) {
   // Read the revision first; the later batch asserts it did not move around the decision read.
   const rev = (await env.DB.prepare("SELECT version FROM policy_revision WHERE id=1").first<{ version: number }>())!
     .version;
@@ -114,7 +122,7 @@ export async function policySnapshot(env: Env, user: string, account: string) {
     userId: user,
     accountId: account,
     action: "attachment.stage_upload",
-    modifiers: [],
+    modifiers: stagingModifiers(root),
   });
   return { rev, level: result.level };
 }
@@ -147,14 +155,14 @@ export async function ensureTransfer(env: Env, p: Principal, raw: TransferIntent
     if (input.mode !== "ensure") throw new McpError("handle_invalid", "handle_invalid: unknown transfer");
     const account = await resolveAccount(env, p.userId, input.account);
     assertNotBlocked(input.metadata.filename);
-    const policy = await policySnapshot(env, p.userId, account.id);
+    const policy = await policySnapshot(env, p.userId, account.id, input.metadata.root);
     if (policy.level === "deny") {
       await auditStatement(db, "intent", {
         userId: p.userId,
         accountId: account.id,
         tool: "stage_file",
         action: "attachment.stage_upload",
-        modifiers: [],
+        modifiers: stagingModifiers(input.metadata.root),
         decision: "deny",
         facts: { attachments: 1 },
       }).run();
@@ -188,7 +196,7 @@ export async function ensureTransfer(env: Env, p: Principal, raw: TransferIntent
           userId: p.userId,
           accountId: account.id,
           action: "attachment.stage_upload",
-          modifiers: [],
+          modifiers: stagingModifiers(input.metadata.root),
           canonical: payload,
           hash: await hashCanonical(payload),
           intentHash: hash,
@@ -222,7 +230,7 @@ export async function ensureTransfer(env: Env, p: Principal, raw: TransferIntent
         accountId: account.id,
         tool: "stage_file",
         action: "attachment.stage_upload",
-        modifiers: [],
+        modifiers: stagingModifiers(input.metadata.root),
         decision: policy.level,
         ...(pending ? { pendingId: pending } : {}),
         facts: { attachments: 1 },
@@ -263,7 +271,7 @@ export async function ensureTransfer(env: Env, p: Principal, raw: TransferIntent
       return transferView(env, t, previous.result_generation);
     }
   }
-  const policy = await policySnapshot(env, t.user_id, t.account_id);
+  const policy = await policySnapshot(env, t.user_id, t.account_id, rootOf(t));
   if (policy.level === "deny") {
     await terminalBeforeAdmission(env, t, "denied", "policy_denied");
     throw new McpError("policy_denied", "policy_denied: upload policy tightened");
@@ -323,7 +331,7 @@ export async function ensureTransfer(env: Env, p: Principal, raw: TransferIntent
             userId: t.user_id,
             accountId: t.account_id,
             action: "attachment.stage_upload",
-            modifiers: [],
+            modifiers: stagingModifiers(rootOf(t)),
             canonical: payload,
             hash: await hashCanonical(payload),
             intentHash: t.intent_hash,

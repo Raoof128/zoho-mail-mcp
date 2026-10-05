@@ -1,6 +1,8 @@
+import { zohoFixture } from "./zoho-mail.test";
 import { env } from "cloudflare:test";
 import { beforeAll, describe, expect, it } from "vitest";
 import { seedUserAndAccount } from "./fixtures";
+import { ensureTransfer } from "../src/staging/transfers";
 beforeAll(async () => {
   await seedUserAndAccount(env.DB, { userId: "transfer-owner", accountId: "transfer-account", alias: "work" });
   await seedUserAndAccount(env.DB, { userId: "other-owner", accountId: "other-account", alias: "work" });
@@ -32,4 +34,26 @@ describe("transfer persistence", () => {
     await env.DB.prepare("UPDATE upload_generations SET state='expired' WHERE transfer_id='tr_one'").run();
     await add(2);
   });
+});
+
+it("staging from the outbox root is allowed; from any other root it asks with +outside_outbox", async () => {
+  const { e } = await zohoFixture();
+  const principal = { userId: "u", email: "u@example.test", scope: "staging" as const };
+  const meta = { filename: "a.pdf", size: 3, mime: "application/pdf", sha256: "0".repeat(64) };
+  const ok = await ensureTransfer(e, principal, {
+    mode: "ensure",
+    transfer_id: "tr_" + "a".repeat(43),
+    account: "sarabi",
+    metadata: { ...meta, root: "outbox" },
+  });
+  // Allowed: the upload ticket is issued at once (the plan expected "authorized"; this API answers "issued").
+  expect(ok.state).toBe("issued");
+  const ask = await ensureTransfer(e, principal, {
+    mode: "ensure",
+    transfer_id: "tr_" + "b".repeat(43),
+    account: "sarabi",
+    metadata: { ...meta, root: "documents" },
+  });
+  expect(ask.state).toBe("awaiting_approval");
+  expect(ask.approval_url).toBeDefined();
 });
