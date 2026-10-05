@@ -43,7 +43,7 @@ async function readIntent(request: Request) {
   }
   return TransferIntent.parse(JSON.parse(new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(bytes)));
 }
-export function stagingApiHandler(_deps: Deps): FetchHandler {
+export function stagingApiHandler(deps: Deps): FetchHandler {
   return {
     async fetch(request, env) {
       const principal = await requireScope(request, env, "staging");
@@ -54,7 +54,8 @@ export function stagingApiHandler(_deps: Deps): FetchHandler {
         if (path === "/staging/intent" && request.method === "POST")
           return json(await ensureTransfer(env, principal, await readIntent(request)));
         const ticket = TICKET.exec(path);
-        if (ticket && request.method === "PUT") return json(await acceptUpload(env, principal, ticket[1]!, request));
+        if (ticket && request.method === "PUT")
+          return json(await acceptUpload(env, deps, principal, ticket[1]!, request));
         const m = HANDLE.exec(path);
         if (!m) return json({ error: "not_found" }, 404);
         if (m[2] && request.method === "POST") {

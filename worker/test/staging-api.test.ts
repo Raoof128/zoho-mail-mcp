@@ -5,13 +5,21 @@ import { FakeZoho } from "./fake-zoho";
 import { Browser, mintToken } from "./browser";
 import { testEnv, testDeps, HOST } from "./test-env";
 import { registerCompanionClient } from "../src/auth/companion";
-import { seedUserAndAccount } from "./fixtures";
+import { seedUserAndAccount, seedAccessToken } from "./fixtures";
 import { setPolicy } from "../src/policy/engine";
 it("authenticates identity and uploads through the real staging OAuth route", async () => {
   const g = await FakeZoho.create();
   const w = createWorker(testDeps(g));
   const e = testEnv();
-  await seedUserAndAccount(env.DB, { userId: "owner-sub", accountId: "api-account", alias: "work" });
+  // Since M5 the upload streams to Zoho, so the account needs a mailbox and a token in the double.
+  await seedUserAndAccount(env.DB, {
+    userId: "owner-sub",
+    accountId: "api-account",
+    alias: "work",
+    zohoAccountId: "1970001",
+  });
+  g.accounts.set("sub-api-account", { accountId: "1970001", primaryEmail: "work@example.test", sendAs: [] });
+  await seedAccessToken(e, { userId: "owner-sub", accountId: "api-account", access: g.directToken("1970001") });
   await setPolicy(env.DB, {
     userId: "owner-sub",
     accountId: "api-account",
@@ -54,5 +62,12 @@ it("authenticates identity and uploads through the real staging OAuth route", as
     body: "",
   });
   expect(result.status).toBe(200);
-  expect(await result.json()).toMatchObject({ state: "completed" });
+  const done = await result.json<{ state: string; handle: string }>();
+  expect(done).toMatchObject({ state: "completed" });
+  // Sealed in D1, bytes held by Zoho: nothing in Cloudflare storage.
+  const row = await env.DB.prepare("SELECT direction, provider_ref FROM sealed_handles WHERE handle = ?")
+    .bind(done.handle)
+    .first<{ direction: string; provider_ref: string }>();
+  expect(row!.direction).toBe("upload");
+  expect(g.mail.uploads.has((JSON.parse(row!.provider_ref) as { storeName: string }).storeName)).toBe(true);
 });

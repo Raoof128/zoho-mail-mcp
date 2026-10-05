@@ -8,13 +8,24 @@ import { FakeZoho } from "./fake-zoho";
 import { Browser, mintToken } from "./browser";
 import { testEnv, testDeps, HOST } from "./test-env";
 import { registerCompanionClient } from "../src/auth/companion";
-import { seedUserAndAccount } from "./fixtures";
+import { seedUserAndAccount, seedAccessToken } from "./fixtures";
 import { setPolicy } from "../src/policy/engine";
 it("runs companion orchestration through real Worker OAuth and staging publication", async () => {
   const google = await FakeZoho.create(),
     worker = createWorker(testDeps(google)),
     e = testEnv();
-  await seedUserAndAccount(env.DB, { userId: "owner-sub", accountId: "roundtrip-account", alias: "work" });
+  await seedUserAndAccount(env.DB, {
+    userId: "owner-sub",
+    accountId: "roundtrip-account",
+    alias: "work",
+    zohoAccountId: "1970002",
+  });
+  google.accounts.set("sub-roundtrip-account", { accountId: "1970002", primaryEmail: "work@example.test", sendAs: [] });
+  await seedAccessToken(e, {
+    userId: "owner-sub",
+    accountId: "roundtrip-account",
+    access: google.directToken("1970002"),
+  });
   await setPolicy(env.DB, {
     userId: "owner-sub",
     accountId: "roundtrip-account",
@@ -63,6 +74,6 @@ it("runs companion orchestration through real Worker OAuth and staging publicati
   expect(result.state).toBe("completed");
   expect((await companion.stage(input)).handle).toBe(result.handle);
   expect(
-    await env.DB.prepare("SELECT count(*) AS n FROM staging_objects WHERE user_id=?").bind(owner.user_id).first(),
+    await env.DB.prepare("SELECT count(*) AS n FROM sealed_handles WHERE user_id=?").bind(owner.user_id).first(),
   ).toEqual({ n: 1 });
 });

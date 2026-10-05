@@ -2,8 +2,10 @@ import { recoveryBudget } from "./budgets";
 import { STAGING_LIMITS as L, UploadMetadata, type TransferResult } from "@zoho-mail-mcp/shared/staging";
 import { McpError } from "@zoho-mail-mcp/shared/errors";
 import type { Env } from "../env";
+import type { Deps } from "../deps";
+import { uploadToZoho } from "../zoho/attachments";
+import { UPLOAD_HANDLE_TTL_MS } from "./sealed";
 import type { Principal } from "../auth/principal";
-import { sha256Hex } from "../crypto/canonical";
 import { randomHandle } from "../crypto/random";
 import { assertNotBlocked } from "../policy/limits";
 import { auditStatement } from "../audit/log";
@@ -20,48 +22,14 @@ import {
   type TransferRow,
 } from "./transfers";
 
-class InterruptedUpload extends Error {}
 class UploadIntegrityError extends McpError {
   constructor() {
     super("handle_invalid", "handle_invalid: upload integrity");
   }
 }
-
-async function readBody(request: Request, size: number): Promise<Uint8Array<ArrayBuffer>> {
-  const out = new Uint8Array(size);
-  let offset = 0;
-  if (!request.body) {
-    if (size === 0) return out;
-    throw new UploadIntegrityError();
-  }
-  const reader = (request.body as ReadableStream<Uint8Array>).getReader();
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const deadline = new Promise<never>((_, reject) => {
-    timer = setTimeout(() => {
-      void reader.cancel().catch(() => {});
-      reject(new InterruptedUpload("upload interrupted"));
-    }, L.bodyMs);
-  });
-  try {
-    for (;;) {
-      const part = await Promise.race([reader.read(), deadline]).catch(() => {
-        throw new InterruptedUpload("upload interrupted");
-      });
-      if (part.done) break;
-      if (offset + part.value.byteLength > size) throw new UploadIntegrityError();
-      out.set(part.value, offset);
-      offset += part.value.byteLength;
-    }
-    if (offset !== size) throw new UploadIntegrityError();
-    return out;
-  } finally {
-    if (timer !== undefined) clearTimeout(timer);
-    await reader.cancel().catch(() => {});
-    reader.releaseLock();
-  }
-}
 export async function acceptUpload(
   env: Env,
+  deps: Deps,
   p: Principal,
   ticket: string,
   request: Request,
@@ -127,7 +95,6 @@ export async function acceptUpload(
   const until = now + L.leaseMs;
   try {
     await db.batch([
-      assertion(db, "(SELECT count(*) FROM staging_materializations WHERE lease_until>?)=0", [now]),
       policyAssert(db, policy.rev),
       accountAssert(db, t.user_id, t.account_id, account.credential_version),
       assertion(
@@ -157,36 +124,27 @@ export async function acceptUpload(
   } catch {
     throw new McpError("handle_invalid", "handle_invalid: upload admission lost or busy");
   }
-  let putStarted = false;
-  let putReturned = false;
+  let sent = false;
   try {
-    const bytes = await readBody(request, m.size);
-    const digest = await sha256Hex(bytes);
-    if (digest !== m.sha256) throw new UploadIntegrityError();
-    if (Date.now() >= until) throw new McpError("handle_invalid", "handle_invalid: upload lease expired");
-    putStarted = true;
-    await env.STAGING.put(g.provider_ref, bytes, {
-      httpMetadata: { contentType: m.mime },
-      customMetadata: {
-        intent_hash: t.intent_hash,
-        size: String(m.size),
-        sha256: digest,
-        generation: String(g.generation),
+    if (!request.body && m.size > 0) throw new UploadIntegrityError();
+    // Spec D16: the body streams to Zoho through a hashing tee; nothing is stored in Cloudflare.
+    sent = true;
+    const { ref, sha256 } = await uploadToZoho(
+      env,
+      deps,
+      { userId: t.user_id, accountId: t.account_id, toolCallId: `stage:${t.id}` },
+      {
+        fileName: m.filename,
+        size: m.size,
+        body: (request.body ?? new Response(new Uint8Array(0)).body) as ReadableStream<Uint8Array>,
+        declaredSha256: m.sha256,
       },
-    });
-    putReturned = true;
-    await db.batch([
-      db
-        .prepare(
-          "UPDATE upload_generations SET state='stored' WHERE ticket_id=? AND state='uploading' AND lease_until>?",
-        )
-        .bind(ticket, Date.now()),
-      assertion(db, "EXISTS(SELECT 1 FROM upload_generations WHERE ticket_id=? AND state='stored')", [ticket]),
-    ]);
+    );
+    if (Date.now() >= until) throw new McpError("handle_invalid", "handle_invalid: upload lease expired");
     await hooks.afterStored?.();
     const handle = randomHandle();
     const finished = Date.now();
-    const expires = finished + 30 * 60_000;
+    const expires = finished + UPLOAD_HANDLE_TTL_MS;
     const stmts = [
       ...recoveryBudget(db, t.user_id, "upload:" + t.id, 1, finished + L.retentionMs),
       accountAssert(db, t.user_id, t.account_id, account.credential_version),
@@ -195,15 +153,27 @@ export async function acceptUpload(
         "EXISTS(SELECT 1 FROM upload_transfers WHERE user_id=? AND id=? AND active_generation=? AND state='in_progress')",
         [t.user_id, t.id, g.generation],
       ),
-      assertion(db, "EXISTS(SELECT 1 FROM upload_generations WHERE ticket_id=? AND state='stored' AND lease_until>?)", [
-        ticket,
-        finished,
-      ]),
+      assertion(
+        db,
+        "EXISTS(SELECT 1 FROM upload_generations WHERE ticket_id=? AND state='uploading' AND lease_until>?)",
+        [ticket, finished],
+      ),
       db
         .prepare(
-          "INSERT INTO staging_objects(handle,user_id,account_id,direction,provider_ref,filename,mime,size,sha256,created_at,expires_at) VALUES(?,?,?,'upload',?,?,?,?,?,?,?)",
+          "INSERT INTO sealed_handles(handle,user_id,account_id,direction,provider_ref,filename,mime,size,sha256,created_at,expires_at) VALUES(?,?,?,'upload',?,?,?,?,?,?,?)",
         )
-        .bind(handle, t.user_id, t.account_id, g.provider_ref, m.filename, m.mime, m.size, digest, finished, expires),
+        .bind(
+          handle,
+          t.user_id,
+          t.account_id,
+          JSON.stringify(ref),
+          m.filename,
+          m.mime,
+          m.size,
+          sha256,
+          finished,
+          expires,
+        ),
       db
         .prepare(
           "UPDATE upload_generations SET state='completed',cleanup_state='published',writer_stopped=1 WHERE ticket_id=?",
@@ -230,37 +200,29 @@ export async function acceptUpload(
     await db.batch(stmts);
     return transferView(env, (await readTransfer(db, t.user_id, t.id))!);
   } catch (e) {
-    // A response/commit ambiguity must not destroy an object that a completed transfer references.
     const latest = await readTransfer(db, t.user_id, t.id);
     if (latest?.state === "completed") return transferView(env, latest);
     const currentAccount = await db
       .prepare("SELECT 1 FROM accounts WHERE user_id=? AND id=? AND status='active' AND credential_version=?")
       .bind(t.user_id, t.account_id, account.credential_version)
       .first();
-    const retryable =
-      currentAccount !== null &&
-      !(e instanceof UploadIntegrityError) &&
-      (e instanceof InterruptedUpload || (putStarted && !putReturned) || Date.now() >= until);
-    await failUpload(env, t, g, retryable ? "abandoned" : "failed", putStarted, putReturned);
+    // A digest or length mismatch is final. Anything else (Zoho down, lease lost) may be retried with a new
+    // generation; an upload Zoho accepted but we did not seal is orphaned there and expires on Zoho's side.
+    const final = e instanceof McpError && (e.code === "handle_invalid" || e.code === "limit_exceeded");
+    const retryable = currentAccount !== null && !final && sent;
+    await failUpload(env, t, g, retryable ? "abandoned" : "failed");
     throw e;
   }
 }
-async function failUpload(
-  env: Env,
-  t: TransferRow,
-  g: GenerationRow,
-  state: "failed" | "abandoned",
-  putStarted: boolean,
-  putReturned: boolean,
-) {
+async function failUpload(env: Env, t: TransferRow, g: GenerationRow, state: "failed" | "abandoned") {
   const db = env.DB;
-  const writerStopped = !putStarted || putReturned;
+  // Nothing was written to Cloudflare, so the generation is released at once.
   await db.batch([
     db
       .prepare(
-        "UPDATE upload_generations SET state=?,cleanup_state='debt',writer_stopped=? WHERE ticket_id=? AND state IN ('uploading','stored','abandoned')",
+        "UPDATE upload_generations SET state=?,cleanup_state='released',writer_stopped=1 WHERE ticket_id=? AND state IN ('uploading','stored','abandoned')",
       )
-      .bind(state, writerStopped ? 1 : 0, g.ticket_id),
+      .bind(state, g.ticket_id),
     ...(state === "failed"
       ? [
           db
@@ -286,15 +248,4 @@ async function failUpload(
       : []),
     auditStatement(db, "outcome", auditFor(t, state)),
   ]);
-  // This invocation knows its own put has returned, so it can prove writer termination.
-  // A rejected put can have an unknown remote outcome. Keep its debt charged;
-  // neither a timer nor an absent object proves a delayed writer has stopped.
-  if (!writerStopped) return;
-  if (putReturned) await env.STAGING.delete(g.provider_ref);
-  await db
-    .prepare(
-      "UPDATE upload_generations SET cleanup_state='released' WHERE ticket_id=? AND state IN ('failed','abandoned') AND writer_stopped=1",
-    )
-    .bind(g.ticket_id)
-    .run();
 }

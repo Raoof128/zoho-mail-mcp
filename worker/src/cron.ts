@@ -1,6 +1,5 @@
 import { releaseStatements } from "./staging/reserve";
 import { assertInstallation } from "./operations/installation";
-import { recoverUploads } from "./staging/recovery";
 import type { Env } from "./env";
 import { purgeExpired } from "./staging/store";
 import { purgeExpiredSealed } from "./staging/sealed";
@@ -72,7 +71,6 @@ export async function runCron(env: Env, now: number, limit = 200): Promise<CronR
   let failedSafe = 0;
   for (const r of stale.results) if (await recoverClaimed(env.DB, r.id, now)) failedSafe++;
 
-  await recoverUploads(env, now, limit);
   const staging = await purgeExpired(env, now, limit);
   // Sealed handles (spec D16) replace the R2 store; both are swept until M5 deletes the old one.
   const sealed = await purgeExpiredSealed(env.DB, now, limit);
