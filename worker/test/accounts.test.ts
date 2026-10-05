@@ -119,6 +119,13 @@ describe("accounts page", () => {
     ).results.map((r) => r.pattern);
     expect(list).toEqual(["Prof.Name@uni.edu.au", "some.one@gmail.com"]);
 
+    // 32 MB per message (D14, Raouf 2026-10-05) is the most the page accepts.
+    expect((await b.post("/accounts", { op: "send_limit", account: "ac1", bytes: "32000000", csrf: t })).status).toBe(
+      303,
+    );
+    expect((await b.post("/accounts", { op: "send_limit", account: "ac1", bytes: "32000001", csrf: t })).status).toBe(
+      400,
+    );
     expect((await b.post("/accounts", { op: "send_limit", account: "ac1", bytes: "10485760", csrf: t })).status).toBe(
       303,
     );

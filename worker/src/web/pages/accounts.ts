@@ -16,7 +16,7 @@ import { escapeHtml, redirect } from "../html";
 import { type Route, guardPost, page, readForm, requireRecent, requireSession } from "../router";
 import { revokeOtherSessions, type Session } from "../session";
 
-const MAX_SEND_LIMIT = 26_214_400;
+const MAX_SEND_LIMIT = 32_000_000; // the D14 message ceiling (MESSAGE_BYTES_CEILING)
 
 type AccountRow = {
   id: string;

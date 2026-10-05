@@ -210,11 +210,13 @@ describe("send tools on Zoho", () => {
         provider_ref: "{}",
         filename: "big.bin",
         mime: "application/octet-stream",
-        size: 13_200_000, // two of these exceed the account's 25 MiB send limit
+        size: 13_200_000, // two of these exceed the 20 MB limit the owner sets below
         sha256: "0".repeat(64),
         created_at: Date.now(),
         expires_at: Date.now() + 600_000,
       });
+    // The default is now the 32 MB message ceiling (D14); an owner-lowered limit must still refuse.
+    await e.DB.prepare("UPDATE accounts SET send_limit_bytes = 20000000 WHERE id = ?").bind(accountId).run();
     await expect(
       callTool(e, d, "u", "send_message", {
         account: "sarabi",
