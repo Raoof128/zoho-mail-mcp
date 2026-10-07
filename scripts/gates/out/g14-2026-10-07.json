@@ -1,0 +1,38 @@
+{
+  "base": "https://mail-mcp.sarabisfinerugs.com.au",
+  "registrationOpen": true,
+  "pass": true,
+  "results": [
+    {
+      "check": "protected resource metadata names an authorization server",
+      "pass": true,
+      "detail": "status 200"
+    },
+    {
+      "check": "PKCE S256 only",
+      "pass": true,
+      "detail": "[\"S256\"]"
+    },
+    {
+      "check": "/mcp without a bearer is 401 with resource_metadata",
+      "pass": true,
+      "detail": "status 401"
+    },
+    {
+      "check": "a forged bearer is 401",
+      "pass": true,
+      "detail": "status 401"
+    },
+    {
+      "check": "registration window open: /register is 201",
+      "pass": true,
+      "detail": "status 201"
+    },
+    {
+      "check": "authorize with a foreign resource is refused (invalid_target)",
+      "pass": true,
+      "detail": "status 302"
+    }
+  ],
+  "at": "2026-10-07T03:30:18.184Z"
+}

@@ -1,0 +1,43 @@
+G20 installer gate against https://mail-mcp.sarabisfinerugs.com.au at 2026-10-07T03:29:43Z
+PASS  first run exits 0
+PASS  one download of companion.tgz
+PASS  published tarball matches its published checksum
+PASS  installed bundle is byte-identical to the hashed tarball
+PASS  Desktop config kept its other entries and gained the companion
+PASS  Desktop config backed up before the change
+PASS  Claude Code: both servers at user scope
+PASS  Codex: both servers
+PASS  login agent bootstrapped (stub)
+PASS  second run exits 0
+PASS  second run changes nothing the installer owns
+--- installer output
+Downloading the companion from https://mail-mcp.sarabisfinerugs.com.au
+Installing into /var/folders/q8/6wjw9hcj6d59mz51hlgt_s9w0000gn/T/tmp.Mng5cShGjL/home/Library/Application Support/zoho-mail-mcp
+Companion set up. Put files to send in: /var/folders/q8/6wjw9hcj6d59mz51hlgt_s9w0000gn/T/tmp.Mng5cShGjL/home/Downloads/Mail/To Send
+Login agent installed: /var/folders/q8/6wjw9hcj6d59mz51hlgt_s9w0000gn/T/tmp.Mng5cShGjL/home/Library/LaunchAgents/au.com.sarabisfinerugs.mail-mcp.companion.plist
+Claude Code: added zoho-mail.
+Claude Code: added zoho-mail-companion.
+Codex: added zoho-mail.
+Codex: added zoho-mail-companion.
+Claude Desktop: added zoho-mail-companion (backup: /var/folders/q8/6wjw9hcj6d59mz51hlgt_s9w0000gn/T/tmp.Mng5cShGjL/home/Library/Application Support/Claude/claude_desktop_config.json.bak-20261007T032949414Z).
+Claude Desktop and claude.ai: add the mail connector once.
+  Open Settings, then Connectors, then Add custom connector, and paste:
+  https://mail-mcp.sarabisfinerugs.com.au/mcp
+Done. Open Claude or Codex and ask for your inbox.
+Files you want to send go in: /var/folders/q8/6wjw9hcj6d59mz51hlgt_s9w0000gn/T/tmp.Mng5cShGjL/home/Downloads/Mail/To Send
+Codex: run   codex mcp login zoho-mail   the first time.
+Downloading the companion from https://mail-mcp.sarabisfinerugs.com.au
+Installing into /var/folders/q8/6wjw9hcj6d59mz51hlgt_s9w0000gn/T/tmp.Mng5cShGjL/home/Library/Application Support/zoho-mail-mcp
+Login agent installed: /var/folders/q8/6wjw9hcj6d59mz51hlgt_s9w0000gn/T/tmp.Mng5cShGjL/home/Library/LaunchAgents/au.com.sarabisfinerugs.mail-mcp.companion.plist
+Claude Code: zoho-mail already set up.
+Claude Code: zoho-mail-companion already set up.
+Codex: zoho-mail already set up.
+Codex: zoho-mail-companion already set up.
+Claude Desktop: zoho-mail-companion already set up.
+Claude Desktop and claude.ai: add the mail connector once.
+  Open Settings, then Connectors, then Add custom connector, and paste:
+  https://mail-mcp.sarabisfinerugs.com.au/mcp
+Done. Open Claude or Codex and ask for your inbox.
+Files you want to send go in: /var/folders/q8/6wjw9hcj6d59mz51hlgt_s9w0000gn/T/tmp.Mng5cShGjL/home/Downloads/Mail/To Send
+Codex: run   codex mcp login zoho-mail   the first time.
+G20 PASS; evidence scripts/gates/out/g20-2026-10-07.txt

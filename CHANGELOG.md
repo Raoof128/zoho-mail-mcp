@@ -6,6 +6,13 @@ release.
 
 ## [Unreleased]
 
+### Zoho fork: first production deploy (2026-10-07)
+
+- **Deployed** to `mail-mcp.sarabisfinerugs.com.au` on the client's Cloudflare account; owner bootstrapped; Sarabi slot connected.
+- **Fixed:** the production config sets `workers_dev: false` and `preview_urls: false`, so only the custom domain answers.
+- **Fixed:** the installer installs the companion from `$APP/companion.tgz`, so a second run leaves the folder unchanged (G20).
+- **Gates:** G14 and G20 pass against production; evidence in `scripts/gates/out/`.
+
 ### Zoho fork: M7 deploy and gates, in progress (2026-10-05)
 
 - **Deploy tooling.** The production config is generated from the dev config; secrets go from `.env`
