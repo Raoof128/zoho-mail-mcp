@@ -57,6 +57,9 @@ export function prodConfig(
     ],
     kv_namespaces: [{ binding: "OAUTH_KV", id: ids.kvId }],
     routes: [{ pattern: PROD.host, custom_domain: true }],
+    // The custom domain is the only address: a workers.dev or preview URL would answer outside WORKER_HOSTNAME.
+    workers_dev: false,
+    preview_urls: false,
   };
 }
 

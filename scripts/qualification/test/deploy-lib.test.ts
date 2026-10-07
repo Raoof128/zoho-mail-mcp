@@ -20,6 +20,9 @@ it("derives the production config from the dev config, keeping assets, DO, cron 
   ]);
   expect(c.kv_namespaces).toEqual([{ binding: "OAUTH_KV", id: KV }]);
   expect(c.routes).toEqual([{ pattern: PROD.host, custom_domain: true }]);
+  // Only the custom domain answers: no workers.dev address and no preview URLs that would sidestep it.
+  expect(c.workers_dev).toBe(false);
+  expect(c.preview_urls).toBe(false);
   expect(c.assets).toEqual({ directory: "./public", binding: "ASSETS", run_worker_first: true });
   expect(c.durable_objects).toEqual({ bindings: [{ name: "ACCOUNT_DO", class_name: "AccountDO" }] });
   expect(c.triggers).toEqual({ crons: ["*/5 * * * *"] });
