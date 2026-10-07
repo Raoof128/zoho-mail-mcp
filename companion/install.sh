@@ -56,8 +56,10 @@ fi
 mkdir -p "$APP/bin" "$HOME/Downloads/Mail/To Send" "$HOME/Downloads/Mail/Received"
 chmod 700 "$APP"
 say "Installing into $APP"
-# --no-save: nothing records the temporary path, so a second run leaves the folder as it was.
-npm install --prefix "$APP" "$TMP/companion.tgz" --no-save --no-package-lock --no-audit --no-fund --loglevel=error >/dev/null
+# The verified file moves to a fixed path first: npm records the tarball's path in
+# node_modules/.package-lock.json, so installing from a fresh temp folder changed it on every run.
+mv -f "$TMP/companion.tgz" "$APP/companion.tgz"
+npm install --prefix "$APP" "$APP/companion.tgz" --no-save --no-package-lock --no-audit --no-fund --loglevel=error >/dev/null
 ENTRY="$APP/node_modules/zoho-mail-mcp-companion/dist/companion.mjs"
 [ -f "$ENTRY" ] || fail "the companion did not install"
 # A written wrapper with an absolute node: Claude Desktop and launchd start programs with a minimal PATH.

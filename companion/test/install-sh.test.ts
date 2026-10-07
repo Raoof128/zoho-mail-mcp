@@ -9,7 +9,10 @@ it("passes sh -n and shellcheck, downloads once, and installs the exact verified
   if (sc.status !== null && sc.error === undefined) expect(sc.status, sc.stdout.toString()).toBe(0);
   const text = execFileSync("cat", [sh]).toString();
   expect(text.match(/curl .*companion\.tgz/g)?.length).toBe(1);
-  expect(text).toContain('npm install --prefix "$APP" "$TMP/companion.tgz"');
+  // From a fixed path inside $APP: npm records the tarball path in node_modules/.package-lock.json, so a
+  // fresh temp path each run made the second run change the folder (gate G20, 2026-10-07).
+  expect(text).toContain('npm install --prefix "$APP" "$APP/companion.tgz"');
+  expect(text).not.toContain('npm install --prefix "$APP" "$TMP/companion.tgz"');
   expect(text).not.toContain("npm install -g");
   expect(text).toContain("pkgutil --check-signature");
   expect(text).not.toMatch(/\u2014/);
